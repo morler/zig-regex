@@ -2,6 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const debug = std.debug;
 
 const parser = @import("parse.zig");
@@ -138,7 +139,7 @@ pub const Program = struct {
         for (p.insts) |*inst| {
             switch (inst.data) {
                 .ByteClass => |*bc| {
-                    bc.deinit();
+                    bc.deinit(p.allocator);
                 },
                 else => {},
             }
@@ -175,14 +176,14 @@ pub const Compiler = struct {
 
     pub fn init(a: Allocator) Compiler {
         return Compiler{
-            .insts = ArrayList(PartialInst).init(a),
+            .insts = ArrayListUnmanaged(PartialInst).empty,
             .allocator = a,
             .capture_index = 0,
         };
     }
 
     pub fn deinit(c: *Compiler) void {
-        c.insts.deinit();
+        c.insts.deinit(c.allocator);
     }
 
     fn nextCaptureIndex(c: *Compiler) usize {
@@ -201,7 +202,6 @@ pub const Compiler = struct {
         // compile the main expression
         const patch = try c.compileInternal(expr);
 
-        // not iterating over an empty correctly in backtrack
         c.fillToNext(patch.hole);
         const h = try c.pushHole(InstHole{ .Save = index + 1 });
 
@@ -209,13 +209,13 @@ pub const Compiler = struct {
         c.fillToNext(h);
         try c.pushCompiled(Instruction.new(0, InstructionData.Match));
 
-        var p = ArrayList(Instruction).init(c.allocator);
-        defer p.deinit();
+        var p = ArrayListUnmanaged(Instruction).empty;
+        defer p.deinit(c.allocator);
 
         for (c.insts.items) |e| {
             switch (e) {
                 PartialInst.Compiled => |x| {
-                    try p.append(x);
+                    try p.append(c.allocator, x);
                 },
                 else => |_| {
                     @panic("uncompiled instruction encountered during compilation");
@@ -238,9 +238,9 @@ pub const Compiler = struct {
             Instruction.new(0, InstructionData{ .Split = fragment_start + 1 }),
             Instruction.new(fragment_start, InstructionData.AnyCharNotNL),
         };
-        try p.appendSlice(&fragment);
+        try p.appendSlice(c.allocator, &fragment);
 
-        return Program.init(p.allocator, try p.toOwnedSlice(), fragment_start, c.capture_index);
+        return Program.init(c.allocator, try p.toOwnedSlice(c.allocator), fragment_start, c.capture_index);
     }
 
     fn compileInternal(c: *Compiler, expr: *const Expr) Allocator.Error!Patch {
@@ -285,14 +285,14 @@ pub const Compiler = struct {
 
                     var i: usize = 1;
                     while (i < repeat.min) : (i += 1) {
-                        const new_subexpr = try repeat.subexpr.clone();
+                        const new_subexpr = try repeat.subexpr.clone(c.allocator);
                         const ep = try c.compileInternal(&new_subexpr);
                         c.fill(hole, ep.entry);
                         hole = ep.hole;
                     }
 
                     // add final e* infinite capture
-                    var new_subexpr = try repeat.subexpr.clone();
+                    var new_subexpr = try repeat.subexpr.clone(c.allocator);
                     const st = try c.compileStar(&new_subexpr, repeat.greedy);
                     c.fill(hole, st.entry);
 
@@ -307,7 +307,7 @@ pub const Compiler = struct {
 
                     var i: usize = 1;
                     while (i < repeat.min) : (i += 1) {
-                        const new_subexpr = try repeat.subexpr.clone();
+                        const new_subexpr = try repeat.subexpr.clone(c.allocator);
                         const ep = try c.compileInternal(&new_subexpr);
                         c.fill(hole, ep.entry);
                         hole = ep.hole;
@@ -315,7 +315,7 @@ pub const Compiler = struct {
 
                     // repeated optional concatenations
                     while (i < repeat.max.?) : (i += 1) {
-                        var new_subexpr = try repeat.subexpr.clone();
+                        var new_subexpr = try repeat.subexpr.clone(c.allocator);
                         const ep = try c.compileQuestion(&new_subexpr, repeat.greedy);
                         c.fill(hole, ep.entry);
                         hole = ep.hole;
@@ -380,8 +380,8 @@ pub const Compiler = struct {
                 // 8: ...
 
                 const entry = c.insts.items.len;
-                var holes = ArrayList(Hole).init(c.allocator);
-                errdefer holes.deinit();
+                var holes = ArrayListUnmanaged(Hole).empty;
+                errdefer holes.deinit(c.allocator);
 
                 // TODO: Doees this need to be dynamically allocated?
                 const last_hole = try c.allocator.create(Hole);
@@ -401,7 +401,7 @@ pub const Compiler = struct {
                     const p = try c.compileInternal(subexpr);
 
                     // store outgoing hole for the subexpression
-                    try holes.append(p.hole);
+                    try holes.append(c.allocator, p.hole);
                 }
 
                 // one entry left, push a sub-expression so we end with a double-subexpression.
@@ -409,7 +409,7 @@ pub const Compiler = struct {
                 c.fill(last_hole.*, p.entry);
 
                 // push the last sub-expression hole
-                try holes.append(p.hole);
+                try holes.append(c.allocator, p.hole);
 
                 // return many holes which are all to be filled to the next instruction
                 return Patch{ .hole = Hole{ .Many = holes }, .entry = entry };
@@ -497,10 +497,10 @@ pub const Compiler = struct {
         // compile the subexpression
         const p = try c.compileInternal(expr);
 
-        var holes = ArrayList(Hole).init(c.allocator);
-        errdefer holes.deinit();
-        try holes.append(h);
-        try holes.append(p.hole);
+        var holes = ArrayListUnmanaged(Hole).empty;
+        errdefer holes.deinit(c.allocator);
+        try holes.append(c.allocator, h);
+        try holes.append(c.allocator, p.hole);
 
         // Return a filled patch set to the first split instruction.
         return Patch{ .hole = Hole{ .Many = holes }, .entry = p.entry - 1 };
@@ -508,13 +508,13 @@ pub const Compiler = struct {
 
     // Push a compiled instruction directly onto the stack.
     fn pushCompiled(c: *Compiler, i: Instruction) !void {
-        try c.insts.append(PartialInst{ .Compiled = i });
+        try c.insts.append(c.allocator, PartialInst{ .Compiled = i });
     }
 
     // Push a instruction with a hole onto the set
     fn pushHole(c: *Compiler, i: InstHole) !Hole {
         const h = c.insts.items.len;
-        try c.insts.append(PartialInst{ .Uncompiled = i });
+        try c.insts.append(c.allocator, PartialInst{ .Uncompiled = i });
         return Hole{ .One = h };
     }
 
@@ -523,10 +523,10 @@ pub const Compiler = struct {
         switch (hole) {
             Hole.None => {},
             Hole.One => |pc| c.insts.items[pc].fill(goto1),
-            Hole.Many => |*holes| {
+            Hole.Many => |holes| {
                 for (holes.items) |hole1|
                     c.fill(hole1, goto1);
-                holes.deinit();
+                @constCast(&holes).deinit(c.allocator);
             },
         }
     }

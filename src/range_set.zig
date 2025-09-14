@@ -8,7 +8,7 @@ const debug = std.debug;
 const mem = std.mem;
 const math = std.math;
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 // A single inclusive range (a, b) and a <= b
 pub fn Range(comptime T: type) type {
@@ -36,43 +36,43 @@ pub fn RangeSet(comptime T: type) type {
         // for any consecutive x, y in ranges, the following hold:
         //  - x.min <= x.max
         //  - x.max < y.min
-        ranges: ArrayList(RangeType),
+        ranges: ArrayListUnmanaged(RangeType),
 
-        pub fn init(a: Allocator) Self {
-            return Self{ .ranges = ArrayList(RangeType).init(a) };
+        pub fn init(_: Allocator) Self {
+            return Self{ .ranges = ArrayListUnmanaged(RangeType).empty };
         }
 
-        pub fn deinit(self: *Self) void {
-            self.ranges.deinit();
+        pub fn deinit(self: *Self, allocator: Allocator) void {
+            self.ranges.deinit(allocator);
         }
 
-        pub fn clone(self: Self) !Self {
-            return Self{ .ranges = try self.ranges.clone() };
+        pub fn clone(self: Self, allocator: Allocator) !Self {
+            return Self{ .ranges = try self.ranges.clone(allocator) };
         }
 
         pub fn dupe(self: Self, a: Allocator) !Self {
-            var cloned = try ArrayList(RangeType).initCapacity(a, self.ranges.items.len);
-            cloned.appendSliceAssumeCapacity(self.ranges.items);
+            var cloned = ArrayListUnmanaged(RangeType).empty;
+            try cloned.appendSlice(a, self.ranges.items);
             return Self{ .ranges = cloned };
         }
 
         // Add a range into the current class, preserving the structure invariants.
-        pub fn addRange(self: *Self, range: RangeType) !void {
+        pub fn addRange(self: *Self, allocator: Allocator, range: RangeType) !void {
             var ranges = &self.ranges;
 
             if (ranges.items.len == 0) {
-                try ranges.append(range);
+                try ranges.append(allocator, range);
                 return;
             }
 
             // Insert range.
             for (ranges.items, 0..) |r, i| {
                 if (range.min <= r.min) {
-                    try ranges.insert(i, range);
+                    try ranges.insert(allocator, i, range);
                     break;
                 }
             } else {
-                try ranges.append(range);
+                try ranges.append(allocator, range);
             }
 
             // Merge overlapping runs.
@@ -99,9 +99,9 @@ pub fn RangeSet(comptime T: type) type {
         }
 
         // Merge two classes into one.
-        pub fn mergeClass(self: *Self, other: Self) !void {
+        pub fn mergeClass(self: *Self, allocator: Allocator, other: Self) !void {
             for (other.ranges.items) |r| {
-                try self.addRange(r);
+                try self.addRange(allocator, r);
             }
         }
 
@@ -109,7 +109,7 @@ pub fn RangeSet(comptime T: type) type {
         // the inverted set. i.e. contains(a, byte) == !contains(b, byte) if a == b.negated().
         //
         // The negation is performed in place.
-        pub fn negate(self: *Self) !void {
+        pub fn negate(self: *Self, allocator: Allocator) !void {
             const ranges = &self.ranges;
             const ranges_end = self.ranges.items.len;
 
@@ -119,7 +119,7 @@ pub fn RangeSet(comptime T: type) type {
             const negated_start = self.ranges.items.len;
 
             if (ranges.items.len == 0) {
-                try ranges.append(RangeType.new(math.minInt(T), math.maxInt(T)));
+                try ranges.append(allocator, RangeType.new(math.minInt(T), math.maxInt(T)));
                 return;
             }
 
@@ -127,7 +127,7 @@ pub fn RangeSet(comptime T: type) type {
             for (ranges.items[0..ranges_end]) |r| {
                 // NOTE: Can only occur on first element.
                 if (r.min != math.minInt(T)) {
-                    try negated.append(RangeType.new(low, r.min - 1));
+                    try negated.append(allocator, RangeType.new(low, r.min - 1));
                 }
 
                 low = math.add(T, r.max, 1) catch math.maxInt(T);
@@ -136,7 +136,7 @@ pub fn RangeSet(comptime T: type) type {
             // Highest segment will be remaining.
             const lastRange = ranges.items[ranges_end - 1];
             if (lastRange.max != math.maxInt(T)) {
-                try negated.append(RangeType.new(low, math.maxInt(T)));
+                try negated.append(allocator, RangeType.new(low, math.maxInt(T)));
             }
 
             std.mem.copyForwards(RangeType, ranges.items, ranges.items[negated_start..]);
@@ -161,57 +161,57 @@ pub const ByteClassTemplates = struct {
 
     pub fn Whitespace(a: Allocator) !ByteClass {
         var rs = ByteClass.init(a);
-        errdefer rs.deinit();
+        errdefer rs.deinit(a);
 
         // \t, \n, \v, \f, \r
-        try rs.addRange(ByteRange.new('\x09', '\x0D'));
+        try rs.addRange(a, ByteRange.new('\x09', '\x0D'));
         // ' '
-        try rs.addRange(ByteRange.single(' '));
+        try rs.addRange(a, ByteRange.single(' '));
 
         return rs;
     }
 
     pub fn NonWhitespace(a: Allocator) !ByteClass {
         var rs = try Whitespace(a);
-        errdefer rs.deinit();
+        errdefer rs.deinit(a);
 
-        try rs.negate();
+        try rs.negate(a);
         return rs;
     }
 
     pub fn AlphaNumeric(a: Allocator) !ByteClass {
         var rs = ByteClass.init(a);
-        errdefer rs.deinit();
+        errdefer rs.deinit(a);
 
-        try rs.addRange(ByteRange.new('0', '9'));
-        try rs.addRange(ByteRange.new('A', 'Z'));
-        try rs.addRange(ByteRange.new('a', 'z'));
+        try rs.addRange(a, ByteRange.new('0', '9'));
+        try rs.addRange(a, ByteRange.new('A', 'Z'));
+        try rs.addRange(a, ByteRange.new('a', 'z'));
 
         return rs;
     }
 
     pub fn NonAlphaNumeric(a: Allocator) !ByteClass {
         var rs = try AlphaNumeric(a);
-        errdefer rs.deinit();
+        errdefer rs.deinit(a);
 
-        try rs.negate();
+        try rs.negate(a);
         return rs;
     }
 
     pub fn Digits(a: Allocator) !ByteClass {
         var rs = ByteClass.init(a);
-        errdefer rs.deinit();
+        errdefer rs.deinit(a);
 
-        try rs.addRange(ByteRange.new('0', '9'));
+        try rs.addRange(a, ByteRange.new('0', '9'));
 
         return rs;
     }
 
     pub fn NonDigits(a: Allocator) !ByteClass {
         var rs = try Digits(a);
-        errdefer rs.deinit();
+        errdefer rs.deinit(a);
 
-        try rs.negate();
+        try rs.negate(a);
         return rs;
     }
 };
@@ -219,8 +219,8 @@ pub const ByteClassTemplates = struct {
 test "class simple" {
     const alloc = std.testing.allocator;
     var a = RangeSet(u8).init(alloc);
-    defer a.deinit();
-    try a.addRange(Range(u8).new(0, 54));
+    defer a.deinit(alloc);
+    try a.addRange(alloc, Range(u8).new(0, 54));
 
     debug.assert(a.contains(0));
     debug.assert(a.contains(23));
@@ -231,15 +231,15 @@ test "class simple" {
 test "class simple negate" {
     const alloc = std.testing.allocator;
     var a = RangeSet(u8).init(alloc);
-    defer a.deinit();
-    try a.addRange(Range(u8).new(0, 54));
+    defer a.deinit(alloc);
+    try a.addRange(alloc, Range(u8).new(0, 54));
 
     debug.assert(a.contains(0));
     debug.assert(a.contains(23));
     debug.assert(a.contains(54));
     debug.assert(!a.contains(58));
 
-    try a.negate();
+    try a.negate(alloc);
     // Match the negation
 
     debug.assert(!a.contains(0));
@@ -248,7 +248,7 @@ test "class simple negate" {
     debug.assert(a.contains(55));
     debug.assert(a.contains(58));
 
-    try a.negate();
+    try a.negate(alloc);
     // negate is idempotent
 
     debug.assert(a.contains(0));
@@ -260,10 +260,10 @@ test "class simple negate" {
 test "class multiple" {
     const alloc = std.testing.allocator;
     var a = RangeSet(u8).init(alloc);
-    defer a.deinit();
-    try a.addRange(Range(u8).new(0, 20));
-    try a.addRange(Range(u8).new(80, 100));
-    try a.addRange(Range(u8).new(230, 255));
+    defer a.deinit(alloc);
+    try a.addRange(alloc, Range(u8).new(0, 20));
+    try a.addRange(alloc, Range(u8).new(80, 100));
+    try a.addRange(alloc, Range(u8).new(230, 255));
 
     debug.assert(a.contains(20));
     debug.assert(!a.contains(21));
@@ -277,10 +277,10 @@ test "class multiple" {
 test "class multiple negated" {
     const alloc = std.testing.allocator;
     var a = RangeSet(u8).init(alloc);
-    defer a.deinit();
-    try a.addRange(Range(u8).new(0, 20));
-    try a.addRange(Range(u8).new(80, 100));
-    try a.addRange(Range(u8).new(230, 255));
+    defer a.deinit(alloc);
+    try a.addRange(alloc, Range(u8).new(0, 20));
+    try a.addRange(alloc, Range(u8).new(80, 100));
+    try a.addRange(alloc, Range(u8).new(230, 255));
 
     debug.assert(a.contains(20));
     debug.assert(!a.contains(21));
@@ -290,7 +290,7 @@ test "class multiple negated" {
     debug.assert(a.contains(230));
     debug.assert(a.contains(255));
 
-    try a.negate();
+    try a.negate(alloc);
 
     debug.assert(!a.contains(20));
     debug.assert(a.contains(21));
@@ -300,7 +300,7 @@ test "class multiple negated" {
     debug.assert(!a.contains(230));
     debug.assert(!a.contains(255));
 
-    try a.negate();
+    try a.negate(alloc);
 
     debug.assert(a.contains(20));
     debug.assert(!a.contains(21));
@@ -314,9 +314,9 @@ test "class multiple negated" {
 test "class out of order" {
     const alloc = std.testing.allocator;
     var a = RangeSet(u8).init(alloc);
-    defer a.deinit();
-    try a.addRange(Range(u8).new(80, 100));
-    try a.addRange(Range(u8).new(20, 30));
+    defer a.deinit(alloc);
+    try a.addRange(alloc, Range(u8).new(80, 100));
+    try a.addRange(alloc, Range(u8).new(20, 30));
 
     debug.assert(a.contains(80));
     debug.assert(!a.contains(79));
@@ -328,10 +328,10 @@ test "class out of order" {
 test "class merging" {
     const alloc = std.testing.allocator;
     var a = RangeSet(u8).init(alloc);
-    defer a.deinit();
-    try a.addRange(Range(u8).new(20, 100));
-    try a.addRange(Range(u8).new(50, 80));
-    try a.addRange(Range(u8).new(50, 140));
+    defer a.deinit(alloc);
+    try a.addRange(alloc, Range(u8).new(20, 100));
+    try a.addRange(alloc, Range(u8).new(50, 80));
+    try a.addRange(alloc, Range(u8).new(50, 140));
 
     debug.assert(!a.contains(19));
     debug.assert(a.contains(20));
@@ -343,9 +343,9 @@ test "class merging" {
 test "class merging boundary" {
     const alloc = std.testing.allocator;
     var a = RangeSet(u8).init(alloc);
-    defer a.deinit();
-    try a.addRange(Range(u8).new(20, 40));
-    try a.addRange(Range(u8).new(40, 60));
+    defer a.deinit(alloc);
+    try a.addRange(alloc, Range(u8).new(20, 40));
+    try a.addRange(alloc, Range(u8).new(40, 60));
 
     debug.assert(a.ranges.items.len == 1);
 }
@@ -353,10 +353,10 @@ test "class merging boundary" {
 test "class merging adjacent" {
     const alloc = std.testing.allocator;
     var a = RangeSet(u8).init(alloc);
-    defer a.deinit();
-    try a.addRange(Range(u8).new(56, 56));
-    try a.addRange(Range(u8).new(57, 57));
-    try a.addRange(Range(u8).new(58, 58));
+    defer a.deinit(alloc);
+    try a.addRange(alloc, Range(u8).new(56, 56));
+    try a.addRange(alloc, Range(u8).new(57, 57));
+    try a.addRange(alloc, Range(u8).new(58, 58));
 
     debug.assert(a.ranges.items.len == 1);
 }

@@ -6,6 +6,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const debug = std.debug;
 
 const parse = @import("parse.zig");
@@ -43,13 +44,13 @@ pub const Regex = struct {
         return Regex{
             .allocator = a,
             .compiled = try c.compile(expr),
-            .slots = ArrayList(?usize).init(a),
+            .slots = ArrayListUnmanaged(?usize).empty,
             .string = re,
         };
     }
 
     pub fn deinit(re: *Regex) void {
-        re.slots.deinit();
+        re.slots.deinit(re.allocator);
         re.compiled.deinit();
     }
 
@@ -73,7 +74,7 @@ pub const Regex = struct {
         const is_match = try exec.exec(re.allocator, re.compiled, re.compiled.find_start, &input_bytes.input, &re.slots);
 
         if (is_match) {
-            return try Captures.init(input_str, &re.slots);
+            return try Captures.init(input_str, re.allocator, &re.slots);
         } else {
             return null;
         }
@@ -94,11 +95,11 @@ pub const Captures = struct {
     allocator: Allocator,
     slots: []const ?usize,
 
-    pub fn init(input: []const u8, slots: *ArrayList(?usize)) !Captures {
+    pub fn init(input: []const u8, allocator: Allocator, slots: *ArrayListUnmanaged(?usize)) !Captures {
         return Captures{
             .input = input,
-            .allocator = slots.allocator,
-            .slots = try slots.allocator.dupe(?usize, slots.items),
+            .allocator = allocator,
+            .slots = try allocator.dupe(?usize, slots.items),
         };
     }
 

@@ -29,7 +29,7 @@ const StaticWriter = struct {
     }
 
     pub const Error = error{OutOfMemory};
-    pub const Writer = std.io.Writer(*StaticWriter, Error, writeFn);
+    pub const Writer = std.io.GenericWriter(*StaticWriter, Error, writeFn);
 
     pub fn writer(self: *StaticWriter) Writer {
         return .{ .context = self };

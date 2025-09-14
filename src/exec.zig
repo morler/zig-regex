@@ -3,17 +3,15 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const compile = @import("compile.zig");
 const Program = compile.Program;
-
-const VmBacktrack = @import("vm_backtrack.zig").VmBacktrack;
-const VmPike = @import("vm_pike.zig").VmPike;
 const Input = @import("input.zig").Input;
 
+// TODO: Implement new Thompson NFA engine
+// This is a placeholder until the new engine is implemented
 pub fn exec(allocator: Allocator, prog: Program, prog_start: usize, input: *Input, slots: *ArrayList(?usize)) !bool {
-    if (VmBacktrack.shouldExec(prog, input)) {
-        var engine = VmBacktrack.init(allocator);
-        return engine.exec(prog, prog_start, input, slots);
-    } else {
-        var engine = VmPike.init(allocator);
-        return engine.exec(prog, prog_start, input, slots);
-    }
+    _ = allocator;
+    _ = prog;
+    _ = prog_start;
+    _ = input;
+    _ = slots;
+    @panic("exec function not implemented - Thompson NFA engine needs to be implemented");
 }

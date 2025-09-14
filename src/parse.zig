@@ -6,7 +6,7 @@ const mem = std.mem;
 const fmt = std.fmt;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const ArrayList = std.ArrayList;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const debug = std.debug;
 
 const range_set = @import("range_set.zig");
@@ -63,9 +63,9 @@ pub const Expr = union(enum) {
     // Character class [a-z0-9]
     ByteClass: ByteClass,
     // Concatenation
-    Concat: ArrayList(*Expr),
+    Concat: ArrayListUnmanaged(*Expr),
     // |
-    Alternate: ArrayList(*Expr),
+    Alternate: ArrayListUnmanaged(*Expr),
     // Pseudo stack operator to define start of a capture
     PseudoLeftParen,
 
@@ -81,9 +81,9 @@ pub const Expr = union(enum) {
         }
     }
 
-    pub fn clone(re: *Expr) !Expr {
+    pub fn clone(re: *Expr, allocator: Allocator) !Expr {
         return switch (re.*) {
-            .ByteClass => |*bc| Expr{ .ByteClass = try bc.clone() },
+            .ByteClass => |*bc| Expr{ .ByteClass = try bc.clone(allocator) },
             else => re.*,
         };
     }
@@ -261,7 +261,7 @@ pub const ParserOptions = struct {
 /// The resulting expression is tied to the Parser which generated it.
 pub const Parser = struct {
     // Parse expression stack
-    stack: ArrayList(*Expr),
+    stack: ArrayListUnmanaged(*Expr),
     // ArenaAllocator for generating all expression nodes
     arena: ArenaAllocator,
     // Allocator for temporary lists/items
@@ -277,7 +277,7 @@ pub const Parser = struct {
 
     pub fn initWithOptions(a: Allocator, options: ParserOptions) Parser {
         return Parser{
-            .stack = ArrayList(*Expr).init(a),
+            .stack = ArrayListUnmanaged(*Expr).empty,
             .arena = ArenaAllocator.init(a),
             .allocator = a,
             .options = options,
@@ -286,7 +286,7 @@ pub const Parser = struct {
     }
 
     pub fn deinit(p: *Parser) void {
-        p.stack.deinit();
+        p.stack.deinit(p.allocator);
         p.arena.deinit();
     }
 
@@ -386,7 +386,7 @@ pub const Parser = struct {
                 '.' => {
                     const r = try p.createExpr();
                     r.* = Expr{ .AnyCharNotNL = undefined };
-                    try p.stack.append(r);
+                    try p.stack.append(p.allocator, r);
                 },
                 '[' => {
                     try p.parseCharClass();
@@ -396,7 +396,7 @@ pub const Parser = struct {
                 '(' => {
                     const r = try p.createExpr();
                     r.* = Expr{ .PseudoLeftParen = undefined };
-                    try p.stack.append(r);
+                    try p.stack.append(p.allocator, r);
                 },
                 ')' => {
                     // Pop the stack until.
@@ -407,7 +407,7 @@ pub const Parser = struct {
                     //   after which must be a opening parenthesis.
                     //
                     // '|' ensures there will be only one alternation on the stack here.
-                    var concat = ArrayList(*Expr).init(p.arena.allocator());
+                    var concat = ArrayListUnmanaged(*Expr).empty;
 
                     while (true) {
                         // would underflow, push a new alternation
@@ -429,7 +429,7 @@ pub const Parser = struct {
                                 }
 
                                 // append to the alternation stack
-                                try e.Alternate.append(ra);
+                                try e.Alternate.append(p.allocator, ra);
 
                                 if (p.stack.items.len == 0) {
                                     return error.UnopenedParentheses;
@@ -440,7 +440,7 @@ pub const Parser = struct {
 
                                 const r = try p.createExpr();
                                 r.* = Expr{ .Capture = e };
-                                try p.stack.append(r);
+                                try p.stack.append(p.allocator, r);
                                 break;
                             },
                             // Existing parentheses, push new alternation
@@ -460,12 +460,12 @@ pub const Parser = struct {
 
                                 const r = try p.createExpr();
                                 r.* = Expr{ .Capture = ra };
-                                try p.stack.append(r);
+                                try p.stack.append(p.allocator, r);
                                 break;
                             },
                             // New expression, push onto concat stack
                             else => {
-                                try concat.append(e);
+                                try concat.append(p.allocator, e);
                             },
                         }
                     }
@@ -476,7 +476,7 @@ pub const Parser = struct {
                     // - Empty, then push the sub-expression as a concat.
                     // - ( pseudo operator, leave '(' and push concat.
                     // - '|' is found, pop the existing and add a new alternation to the array.
-                    var concat = ArrayList(*Expr).init(p.arena.allocator());
+                    var concat = ArrayListUnmanaged(*Expr).empty;
 
                     if (p.stack.items.len == 0 or !p.stack.items[p.stack.items.len - 1].isByteClass()) {
                         return error.EmptyAlternate;
@@ -496,9 +496,9 @@ pub const Parser = struct {
                             }
 
                             var r = try p.createExpr();
-                            r.* = Expr{ .Alternate = ArrayList(*Expr).init(p.arena.allocator()) };
-                            try r.Alternate.append(ra);
-                            try p.stack.append(r);
+                            r.* = Expr{ .Alternate = ArrayListUnmanaged(*Expr).empty };
+                            try r.Alternate.append(p.allocator, ra);
+                            try p.stack.append(p.allocator, r);
                             break;
                         }
 
@@ -516,15 +516,15 @@ pub const Parser = struct {
                                 }
 
                                 // use the expression itself
-                                try e.Alternate.append(ra);
+                                try e.Alternate.append(p.allocator, ra);
 
-                                try p.stack.append(e);
+                                try p.stack.append(p.allocator, e);
                                 break;
                             },
                             // Existing parentheses, push new alternation
                             .PseudoLeftParen => {
                                 // re-push parentheses marker
-                                try p.stack.append(e);
+                                try p.stack.append(p.allocator, e);
 
                                 mem.reverse(*Expr, concat.items);
 
@@ -536,31 +536,31 @@ pub const Parser = struct {
                                 }
 
                                 var r = try p.createExpr();
-                                r.* = Expr{ .Alternate = ArrayList(*Expr).init(p.arena.allocator()) };
-                                try r.Alternate.append(ra);
-                                try p.stack.append(r);
+                                r.* = Expr{ .Alternate = ArrayListUnmanaged(*Expr).empty };
+                                try r.Alternate.append(p.allocator, ra);
+                                try p.stack.append(p.allocator, r);
                                 break;
                             },
                             // New expression, push onto concat stack
                             else => {
-                                try concat.append(e);
+                                try concat.append(p.allocator, e);
                             },
                         }
                     }
                 },
                 '\\' => {
                     const r = try p.parseEscape();
-                    try p.stack.append(r);
+                    try p.stack.append(p.allocator, r);
                 },
                 '^' => {
                     const r = try p.createExpr();
                     r.* = Expr{ .EmptyMatch = Assertion.BeginLine };
-                    try p.stack.append(r);
+                    try p.stack.append(p.allocator, r);
                 },
                 '$' => {
                     const r = try p.createExpr();
                     r.* = Expr{ .EmptyMatch = Assertion.EndLine };
-                    try p.stack.append(r);
+                    try p.stack.append(p.allocator, r);
                 },
                 else => {
                     try p.parseLiteral(ch);
@@ -591,7 +591,7 @@ pub const Parser = struct {
         // After any of these cases, the stack must be empty.
         //
         // There can be no parentheses left on the stack during this popping.
-        var concat = ArrayList(*Expr).init(p.arena.allocator());
+        var concat = ArrayListUnmanaged(*Expr).empty;
 
         while (true) {
             if (p.stack.items.len == 0) {
@@ -625,7 +625,7 @@ pub const Parser = struct {
                     }
 
                     // use the expression itself
-                    try e.Alternate.append(ra);
+                    try e.Alternate.append(p.allocator, ra);
 
                     // if stack is not empty, this is an error
                     if (p.stack.items.len != 0) {
@@ -639,7 +639,7 @@ pub const Parser = struct {
                 },
                 // New expression, push onto concat stack
                 else => {
-                    try concat.append(e);
+                    try concat.append(p.allocator, e);
                 },
             }
         }
@@ -648,7 +648,7 @@ pub const Parser = struct {
     fn parseLiteral(p: *Parser, ch: u8) !void {
         const r = try p.createExpr();
         r.* = Expr{ .Literal = ch };
-        try p.stack.append(r);
+        try p.stack.append(p.allocator, r);
     }
 
     fn parseRepeat(p: *Parser, min: usize, max: ?usize) !void {
@@ -669,7 +669,7 @@ pub const Parser = struct {
 
         const r = try p.createExpr();
         r.* = Expr{ .Repeat = repeat };
-        try p.stack.append(r);
+        try p.stack.append(p.allocator, r);
     }
 
     // NOTE: We don't handle needed character classes.
@@ -677,7 +677,7 @@ pub const Parser = struct {
         var it = &p.it;
 
         var class = ByteClass.init(p.arena.allocator());
-        errdefer class.deinit();
+        errdefer class.deinit(p.arena.allocator());
 
         var negate = false;
         if (it.peekIs('^')) {
@@ -691,7 +691,7 @@ pub const Parser = struct {
             it.bump();
 
             const range = ByteRange{ .min = ']', .max = ']' };
-            try class.addRange(range);
+            try class.addRange(p.allocator, range);
         }
 
         while (!it.peekIs(']')) : (it.bump()) {
@@ -719,10 +719,10 @@ pub const Parser = struct {
                         range = ByteRange{ .min = value, .max = value };
                     },
                     .ByteClass => |*vv| {
-                        defer vv.deinit();
+                        defer vv.deinit(p.arena.allocator());
                         // '-' doesn't make sense following this, merge class here
                         // and continue next.
-                        try class.mergeClass(vv.*);
+                        try class.mergeClass(p.arena.allocator(), vv.*);
                         continue;
                     },
                     else => unreachable,
@@ -746,17 +746,17 @@ pub const Parser = struct {
                 }
             }
 
-            try class.addRange(range);
+            try class.addRange(p.allocator, range);
         }
         it.bump();
 
         if (negate) {
-            try class.negate();
+            try class.negate(p.arena.allocator());
         }
 
         const r = try p.createExpr();
         r.* = Expr{ .ByteClass = class };
-        try p.stack.append(r);
+        try p.stack.append(p.allocator, r);
     }
 
     fn parseEscape(p: *Parser) !*Expr {
