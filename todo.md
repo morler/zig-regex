@@ -259,3 +259,12 @@
     - [ ] Add unit tests: base, split, cycles, anchors (^/$/\b), dense graphs
   - Notes: Pre-allocate scratch to avoid reallocs; keep O(V+E) time and O(V) space.
 - [x] Active Work: Initial epsilon-closure tests added in src/thompson_nfa2.zig (split/anchors/save). Verified exec integration uses new engine.
+
+## Active Work Update (2025-09-14)
+- [x] Implement epsilon-closure core: Split/Jump/Save/EmptyMatch
+- [x] Integrated closure into exec loop (per-step expansion)
+- [x] Added unit tests: split fan-out, ^ anchor, Save slots
+- [ ] Add tests: cycles, dense graphs, end-of-input cases
+- [ ] Expand anchors coverage: $, \b (word boundary), multi-line nuances
+- [ ] UTF-8 boundary tests and behavior validation
+- Next: add cycle and $ anchor tests, then broaden coverage
