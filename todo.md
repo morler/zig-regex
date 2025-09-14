@@ -283,3 +283,7 @@
 - [ ] Expand anchors coverage: $, \b (word boundary), multi-line nuances
 - [ ] UTF-8 boundary tests and behavior validation
 - Next: add cycle and $ anchor tests, then broaden coverage
+## Active Work Update (2025-09-14 2)
+- [x] Added tests in `src/thompson_nfa2.zig`: `$` end anchor closure and execute path; epsilon-cycle safety; `\\b` at start before word char
+- [x] Included suite in `src/all_test.zig`
+- [ ] Add dense-graph stress tests; multiline semantics when available

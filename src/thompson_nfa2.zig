@@ -292,3 +292,120 @@ test "ThompsonNfa epsilon-closure: Save writes slot" {
 
     try std.testing.expectEqual(@as(?usize, 0), slots.items[0]);
 }
+
+test "ThompsonNfa epsilon-closure: EndLine ($) at end-of-input" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 2);
+    defer allocator.free(insts);
+
+    // 0: EmptyMatch($) -> 1; 1: Match
+    insts[0] = Instruction.new(1, InstructionData{ .EmptyMatch = parser.Assertion.EndLine });
+    insts[1] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    // Empty input: position is both start and end, so $ holds
+    var input = input_new.Input.init("", .bytes);
+    try nfa.addClosureFrom(0, program.slot_count, &input, &nfa.thread_set.current);
+
+    // Expect transition to Match is enabled (closure reaches pc=1)
+    try std.testing.expect(nfa.thread_set.current.get(1));
+}
+
+test "ThompsonNfa execute: pattern a$ matches 'a'" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 3);
+    defer allocator.free(insts);
+
+    // 0: Char 'a' -> 1; 1: EmptyMatch($) -> 2; 2: Match
+    insts[0] = Instruction.new(1, InstructionData{ .Char = 'a' });
+    insts[1] = Instruction.new(2, InstructionData{ .EmptyMatch = parser.Assertion.EndLine });
+    insts[2] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    var input = input_new.Input.init("a", .bytes);
+    const ok = try nfa.execute(&input, program.start);
+    try std.testing.expect(ok);
+}
+
+test "ThompsonNfa epsilon-closure: handles epsilon cycles without infinite loop" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 3);
+    defer allocator.free(insts);
+
+    // 0: Split -> (1, 2); 1: Jump -> 0; 2: Match
+    insts[0] = Instruction.new(1, InstructionData{ .Split = 1 }); // out=1, branch=1 (self-branch)
+    insts[1] = Instruction.new(0, InstructionData.Jump); // out=0
+    insts[2] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    var input = input_new.Input.init("", .bytes);
+    try nfa.addClosureFrom(0, program.slot_count, &input, &nfa.thread_set.current);
+
+    // Should visit 0 and 1 but not hang; 2 is not reached by closure
+    try std.testing.expect(nfa.thread_set.current.get(0));
+    try std.testing.expect(nfa.thread_set.current.get(1));
+    try std.testing.expect(!nfa.thread_set.current.get(2));
+}
+
+test "ThompsonNfa epsilon-closure: WordBoundary (\\b) at start before word char" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 3);
+    defer allocator.free(insts);
+
+    // 0: \b -> 1; 1: Char 'a' -> 2; 2: Match
+    insts[0] = Instruction.new(1, InstructionData{ .EmptyMatch = parser.Assertion.WordBoundaryAscii });
+    insts[1] = Instruction.new(2, InstructionData{ .Char = 'a' });
+    insts[2] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    var input = input_new.Input.init("a", .bytes);
+
+    try nfa.addClosureFrom(0, program.slot_count, &input, &nfa.thread_set.current);
+
+    // At start before a word char, \b holds, allowing transition to 1
+    try std.testing.expect(nfa.thread_set.current.get(1));
+}
