@@ -258,6 +258,21 @@
     - [ ] Integrate into NFA exec loop around each input advance
     - [ ] Add unit tests: base, split, cycles, anchors (^/$/\b), dense graphs
   - Notes: Pre-allocate scratch to avoid reallocs; keep O(V+E) time and O(V) space.
+  - Analysis Update (2025-09-14):
+    - Immediate focus: implement end-anchor `$` semantics in closure; ensure expansion respects end-of-input and multiline mode.
+    - Word boundary `\\b`: model via `AnchorCtx` using ASCII word class [A-Za-z0-9_]; derive boundary from prev/next categories.
+    - Cycle safety: enforce `visited` bitset to prevent infinite Split cycles; add regression tests for self- and mutual-cycles.
+    - Dense graphs: preallocate scratch bitsets/stacks to avoid realloc; validate O(V+E) on dense epsilon graphs.
+    - Testing matrix: cycles, `$`, `\\b`, multiline, end-of-input, UTF-8 boundaries.
+    - Wiring: run closure at start and after each input advance; clear scratch appropriately between invocations.
+  - Execution Checklist (2025-09-14):
+    - [ ] Implement `$` anchor handling in closure with proper boundary checks
+    - [ ] Implement `\\b` via `AnchorCtx` and ASCII word-class logic
+    - [ ] Tests: cycles (self-loop, two-node cycle), dense epsilon fan-in/out
+    - [ ] Tests: `$` end-anchor with/without trailing input; multiline mode
+    - [ ] Tests: `\\b` at boundaries/non-boundaries; UTF-8 edge cases
+    - [ ] Verify closure is called at start and after each advance
+    - [ ] Update `src/all_test.zig` with new test suites
 - [x] Active Work: Initial epsilon-closure tests added in src/thompson_nfa2.zig (split/anchors/save). Verified exec integration uses new engine.
 
 ## Active Work Update (2025-09-14)
