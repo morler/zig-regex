@@ -409,3 +409,129 @@ test "ThompsonNfa epsilon-closure: WordBoundary (\\b) at start before word char"
     // At start before a word char, \b holds, allowing transition to 1
     try std.testing.expect(nfa.thread_set.current.get(1));
 }
+
+test "ThompsonNfa execute: pattern a$ does not match 'ab'" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 3);
+    defer allocator.free(insts);
+
+    // 0: Char 'a' -> 1; 1: EmptyMatch($) -> 2; 2: Match
+    insts[0] = Instruction.new(1, InstructionData{ .Char = 'a' });
+    insts[1] = Instruction.new(2, InstructionData{ .EmptyMatch = parser.Assertion.EndLine });
+    insts[2] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    var input = input_new.Input.init("ab", .bytes);
+    const ok = try nfa.execute(&input, program.start);
+    try std.testing.expect(!ok);
+}
+
+test "ThompsonNfa epsilon-closure: Not a word boundary (\\B) at start before non-word" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 3);
+    defer allocator.free(insts);
+
+    // 0: \B -> 1; 1: Char 'a' -> 2; 2: Match
+    insts[0] = Instruction.new(1, InstructionData{ .EmptyMatch = parser.Assertion.NotWordBoundaryAscii });
+    insts[1] = Instruction.new(2, InstructionData{ .Char = 'a' });
+    insts[2] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    var input = input_new.Input.init("a", .bytes);
+
+    // At start before a word char, it's a boundary => \B should not allow transition
+    try nfa.addClosureFrom(0, program.slot_count, &input, &nfa.thread_set.current);
+    try std.testing.expect(!nfa.thread_set.current.get(1));
+}
+
+test "ThompsonNfa epsilon-closure: dense epsilon chain stress" {
+    const allocator = std.testing.allocator;
+
+    const N: usize = 64;
+    var insts = try allocator.alloc(Instruction, N + 1);
+    defer allocator.free(insts);
+
+    // Build a chain of N-1 splits/jumps ending at a Match
+    // 0: Split -> 1 and 2
+    // 1: Split -> 2 and 3
+    // ... creating many reachable states via closure
+    var i: usize = 0;
+    while (i < N - 1) : (i += 1) {
+        const out = if (i + 1 < N - 1) i + 1 else N - 1;
+        const branch = if (i + 2 < N - 1) i + 2 else N - 1;
+        insts[i] = Instruction.new(out, InstructionData{ .Split = branch });
+    }
+    insts[N - 1] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    var input = input_new.Input.init("", .bytes);
+    try nfa.addClosureFrom(0, program.slot_count, &input, &nfa.thread_set.current);
+
+    // Count visited states; should be >= N-1 (many reachable states)
+    var count: usize = 0;
+    var it = nfa.thread_set.current.firstSet();
+    while (it) |pc| : (it = nfa.thread_set.current.nextSet(pc)) {
+        count += 1;
+    }
+    try std.testing.expect(count >= N - 1);
+}
+
+test "ThompsonNfa epsilon-closure: UTF-8 input word boundary at start before ASCII 'a'" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 3);
+    defer allocator.free(insts);
+
+    // 0: \b -> 1; 1: Char 'a' -> 2; 2: Match
+    insts[0] = Instruction.new(1, InstructionData{ .EmptyMatch = parser.Assertion.WordBoundaryAscii });
+    insts[1] = Instruction.new(2, InstructionData{ .Char = 'a' });
+    insts[2] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    // UTF-8 mode input containing ASCII 'a'
+    var input = input_new.Input.init("a", .utf8);
+    try nfa.addClosureFrom(0, program.slot_count, &input, &nfa.thread_set.current);
+    try std.testing.expect(nfa.thread_set.current.get(1));
+}
