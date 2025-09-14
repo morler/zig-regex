@@ -56,10 +56,10 @@ pub const Regex = struct {
         re.compiled.deinit();
     }
 
-    // Does the regex match at the start of the string?
+    // Does the regex match anywhere in the string?
     pub fn match(re: *Regex, input_str: []const u8) !bool {
-        var input_bytes = InputBytes.init(input_str);
-        return exec.exec(re.allocator, re.compiled, re.compiled.start, &input_bytes, &re.slots);
+        var input = Input.init(input_str, .bytes);
+        return exec.exec(re.allocator, re.compiled, re.compiled.find_start, &input, &re.slots);
     }
 
     // Does the regex match anywhere in the string?

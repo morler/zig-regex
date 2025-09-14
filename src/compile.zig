@@ -235,7 +235,9 @@ pub const Compiler = struct {
         // 4: any 3
         const fragment_start = c.insts.items.len;
         const fragment = [_]Instruction{
+            // Split to main program (pc 0) and to the scanner (fragment_start + 1)
             Instruction.new(0, InstructionData{ .Split = fragment_start + 1 }),
+            // Any char, jump back to split
             Instruction.new(fragment_start, InstructionData.AnyCharNotNL),
         };
         try p.appendSlice(c.allocator, &fragment);

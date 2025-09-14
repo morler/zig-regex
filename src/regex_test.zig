@@ -10,7 +10,7 @@ fn check(re_input: []const u8, to_match: []const u8, expected: bool) void {
     var re = Regex.compile(std.testing.allocator, re_input) catch unreachable;
     defer re.deinit();
 
-    if ((re.partialMatch(to_match) catch unreachable) != expected) {
+    if ((re.match(to_match) catch unreachable) != expected) {
         debug.print(
             \\
             \\ -- Failure! ------------------

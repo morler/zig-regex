@@ -378,4 +378,11 @@ pub const Input = union(InputKind) {
             .utf8 => |u| u.isEmptyMatch(match),
         };
     }
+
+    pub fn getLength(self: Input) usize {
+        return switch (self) {
+            .bytes => |b| b.bytes.len,
+            .utf8 => |u| u.bytes.len,
+        };
+    }
 };

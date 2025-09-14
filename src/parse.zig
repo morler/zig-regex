@@ -291,7 +291,7 @@ pub const Parser = struct {
     }
 
     pub fn reset(p: *Parser) void {
-        p.stack.shrink(0);
+        p.stack.clearRetainingCapacity();
 
         // Note: A shrink or reset on the ArenaAllocator would be nice.
         p.arena.deinit();
