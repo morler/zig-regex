@@ -247,3 +247,14 @@
 - 2025-09-14: 完成 zig 0.15.1 兼容性修复，移除�?VM 引擎文件，更�?ArrayList API 和构建系�?- 2025-09-14: 完成输入抽象层重构，实现编译时多态设计，性能提升 1.83 倍，时间节省 45.29%
 - 2025-09-14: 完成位向量线程集合数据结构设计和实现，包括基本操作和集合操作
 - 2025-09-14: 完成 Thompson NFA 状态表示和转换逻辑设计，实现基础框架
+
+## Active Work
+- [ ] Task: Implement NFA epsilon-closure
+  - Analysis: Compute epsilon-closure over NFA states using an explicit work stack and a visited bitset; expand only epsilon-like edges (Epsilon/Split/Anchor), never consuming edges.
+  - Plan:
+    - [ ] Define API types: BitSet, AnchorCtx, Scratch; and n epsilonClosure(alloc: *Allocator, nfa: *const Nfa, start: BitSet, ctx: AnchorCtx, scratch: *Scratch) !BitSet
+    - [ ] Implement visited bitset and work stack/queue
+    - [ ] Expand Epsilon/Split/Anchor edges; handle anchors (^, $, \b) via AnchorCtx
+    - [ ] Integrate into NFA exec loop around each input advance
+    - [ ] Add unit tests: base, split, cycles, anchors (^/$/\b), dense graphs
+  - Notes: Pre-allocate scratch to avoid reallocs; keep O(V+E) time and O(V) space.
