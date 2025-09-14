@@ -258,3 +258,4 @@
     - [ ] Integrate into NFA exec loop around each input advance
     - [ ] Add unit tests: base, split, cycles, anchors (^/$/\b), dense graphs
   - Notes: Pre-allocate scratch to avoid reallocs; keep O(V+E) time and O(V) space.
+- [x] Active Work: Initial epsilon-closure tests added in src/thompson_nfa2.zig (split/anchors/save). Verified exec integration uses new engine.
