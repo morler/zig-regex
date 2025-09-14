@@ -3,7 +3,8 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const compile = @import("compile.zig");
 const Program = compile.Program;
-const Input = @import("input.zig").Input;
+const input_new = @import("input_new.zig");
+const Input = input_new.Input;
 
 // TODO: Implement new Thompson NFA engine
 // This is a placeholder until the new engine is implemented

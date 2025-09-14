@@ -19,7 +19,9 @@ const Compiler = compile.Compiler;
 const Program = compile.Program;
 const Instruction = compile.Instruction;
 
-const InputBytes = @import("input.zig").InputBytes;
+const input_new = @import("input_new.zig");
+const Input = input_new.Input;
+const InputBytes = input_new.InputBytes;
 
 pub const Regex = struct {
     // Internal allocator
@@ -57,21 +59,21 @@ pub const Regex = struct {
     // Does the regex match at the start of the string?
     pub fn match(re: *Regex, input_str: []const u8) !bool {
         var input_bytes = InputBytes.init(input_str);
-        return exec.exec(re.allocator, re.compiled, re.compiled.start, &input_bytes.input, &re.slots);
+        return exec.exec(re.allocator, re.compiled, re.compiled.start, &input_bytes, &re.slots);
     }
 
     // Does the regex match anywhere in the string?
     pub fn partialMatch(re: *Regex, input_str: []const u8) !bool {
-        var input_bytes = InputBytes.init(input_str);
-        return exec.exec(re.allocator, re.compiled, re.compiled.find_start, &input_bytes.input, &re.slots);
+        var input = Input.init(input_str, .bytes);
+        return exec.exec(re.allocator, re.compiled, re.compiled.find_start, &input, &re.slots);
     }
 
     // Where in the string does the regex and its capture groups match?
     //
     // Zero capture is the entire match.
     pub fn captures(re: *Regex, input_str: []const u8) !?Captures {
-        var input_bytes = InputBytes.init(input_str);
-        const is_match = try exec.exec(re.allocator, re.compiled, re.compiled.find_start, &input_bytes.input, &re.slots);
+        var input = Input.init(input_str, .bytes);
+        const is_match = try exec.exec(re.allocator, re.compiled, re.compiled.find_start, &input, &re.slots);
 
         if (is_match) {
             return try Captures.init(input_str, re.allocator, &re.slots);
