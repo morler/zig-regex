@@ -191,7 +191,104 @@ pub const ThompsonNfa = struct {
         return self.match_end != null;
     }
 
-    pub fn getMatchResult(self: *const ThompsonNfa) struct { start: ?usize, end: ?usize } {
+pub fn getMatchResult(self: *const ThompsonNfa) struct { start: ?usize, end: ?usize } {
         return .{ .start = self.match_start, .end = self.match_end };
     }
 };
+
+test "ThompsonNfa epsilon-closure: split fan-out" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 4);
+    defer allocator.free(insts);
+
+    // 0: Split -> 1 and 2; 1: Char 'a' -> 3; 2: Char 'b' -> 3; 3: Match
+    insts[0] = Instruction.new(1, InstructionData{ .Split = 2 });
+    insts[1] = Instruction.new(3, InstructionData{ .Char = 'a' });
+    insts[2] = Instruction.new(3, InstructionData{ .Char = 'b' });
+    insts[3] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    var input = input_new.Input.init("", .bytes);
+
+    // Seed closure from start
+    try nfa.addClosureFrom(0, program.slot_count, &input, &nfa.thread_set.current);
+
+    // Expect both char states to be active; split itself may also be marked
+    try std.testing.expect(nfa.thread_set.current.get(1));
+    try std.testing.expect(nfa.thread_set.current.get(2));
+}
+
+test "ThompsonNfa epsilon-closure: EmptyMatch anchor" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 3);
+    defer allocator.free(insts);
+
+    // 0: EmptyMatch(^) -> 1; 1: Char 'a' -> 2; 2: Match
+    insts[0] = Instruction.new(1, InstructionData{ .EmptyMatch = parser.Assertion.BeginLine });
+    insts[1] = Instruction.new(2, InstructionData{ .Char = 'a' });
+    insts[2] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    var input = input_new.Input.init("a", .bytes);
+
+    try nfa.addClosureFrom(0, program.slot_count, &input, &nfa.thread_set.current);
+
+    // At start of line, anchor allows transition to char state
+    try std.testing.expect(nfa.thread_set.current.get(1));
+}
+
+test "ThompsonNfa epsilon-closure: Save writes slot" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 3);
+    defer allocator.free(insts);
+
+    // 0: Save(0) -> 1; 1: Char 'x' -> 2; 2: Match
+    insts[0] = Instruction.new(1, InstructionData{ .Save = 0 });
+    insts[1] = Instruction.new(2, InstructionData{ .Char = 'x' });
+    insts[2] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 1,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    var slots = std.ArrayListUnmanaged(?usize){};
+    try slots.resize(allocator, program.slot_count);
+    defer slots.deinit(allocator);
+    nfa.setSlots(&slots);
+
+    var input = input_new.Input.init("x", .bytes);
+
+    try nfa.addClosureFrom(0, program.slot_count, &input, &nfa.thread_set.current);
+
+    try std.testing.expectEqual(@as(?usize, 0), slots.items[0]);
+}
