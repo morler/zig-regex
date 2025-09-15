@@ -44,7 +44,7 @@ pub const ThompsonNfa = struct {
         self.slots = slots;
     }
 
-    fn addClosureFrom(self: *ThompsonNfa, start_pc: usize, slots_len: usize, input: *Input, out_set: *BitVector) !void {
+    pub fn addClosureFrom(self: *ThompsonNfa, start_pc: usize, slots_len: usize, input: *Input, out_set: *BitVector) !void {
         var visited = try BitVector.init(self.allocator, self.program.insts.len);
         defer visited.deinit();
 
@@ -191,7 +191,7 @@ pub const ThompsonNfa = struct {
         return self.match_end != null;
     }
 
-pub fn getMatchResult(self: *const ThompsonNfa) struct { start: ?usize, end: ?usize } {
+    pub fn getMatchResult(self: *const ThompsonNfa) struct { start: ?usize, end: ?usize } {
         return .{ .start = self.match_start, .end = self.match_end };
     }
 };
@@ -534,4 +534,200 @@ test "ThompsonNfa epsilon-closure: UTF-8 input word boundary at start before ASC
     var input = input_new.Input.init("a", .utf8);
     try nfa.addClosureFrom(0, program.slot_count, &input, &nfa.thread_set.current);
     try std.testing.expect(nfa.thread_set.current.get(1));
+}
+
+test "ThompsonNfa epsilon-closure: dense graph stress test with 256 nodes" {
+    const allocator = std.testing.allocator;
+
+    const N: usize = 256;
+    var insts = try allocator.alloc(Instruction, N + 1);
+    defer allocator.free(insts);
+
+    // Build a dense epsilon graph: each node splits to next 4 nodes
+    // This creates exponential fan-out to stress test the closure algorithm
+    var i: usize = 0;
+    while (i < N) : (i += 1) {
+        const out1 = if (i + 1 < N) i + 1 else N;
+        const out2 = if (i + 2 < N) i + 2 else N;
+        const out3 = if (i + 4 < N) i + 4 else N;
+        const out4 = if (i + 8 < N) i + 8 else N;
+
+        // Create splits that fan out to multiple targets
+        insts[i] = Instruction.new(out1, InstructionData{ .Split = out2 });
+
+        // Add additional splits for more fan-out if we have space
+        if (i + 3 < N) {
+            insts[i + 1] = Instruction.new(out3, InstructionData{ .Split = out4 });
+            i += 1; // Skip next position as we used it
+        }
+    }
+    insts[N] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    var input = input_new.Input.init("", .bytes);
+
+    // Time the closure computation
+    const start_time = std.time.milliTimestamp();
+    try nfa.addClosureFrom(0, program.slot_count, &input, &nfa.thread_set.current);
+    const end_time = std.time.milliTimestamp();
+    const duration = end_time - start_time;
+
+    // Count visited states - should visit many but not all due to visited tracking
+    var count: usize = 0;
+    var it = nfa.thread_set.current.firstSet();
+    while (it) |pc| : (it = nfa.thread_set.current.nextSet(pc)) {
+        count += 1;
+    }
+
+    // Should visit a significant number of states but not hang
+    try std.testing.expect(count > 10);
+    // Note: with the current graph structure, we might visit most nodes
+    // The important thing is that it completes quickly and doesn't hang
+
+    // Should complete quickly (under 100ms for this size)
+    try std.testing.expect(duration < 100);
+
+    // Verify no memory leaks by checking we can deinit cleanly
+    nfa.thread_set.clear();
+}
+
+test "ThompsonNfa epsilon-closure: deep recursion stress test" {
+    const allocator = std.testing.allocator;
+
+    const DEPTH: usize = 1000;
+    var insts = try allocator.alloc(Instruction, DEPTH + 1);
+    defer allocator.free(insts);
+
+    // Build a deep chain of jumps to test stack depth handling
+    var i: usize = 0;
+    while (i < DEPTH) : (i += 1) {
+        insts[i] = Instruction.new(i + 1, InstructionData.Jump);
+    }
+    insts[DEPTH] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    var input = input_new.Input.init("", .bytes);
+
+    // This should not cause stack overflow
+    try nfa.addClosureFrom(0, program.slot_count, &input, &nfa.thread_set.current);
+
+    // Should reach the final Match state
+    try std.testing.expect(nfa.thread_set.current.get(DEPTH));
+}
+
+test "ThompsonNfa epsilon-closure: complex split network stress test" {
+    const allocator = std.testing.allocator;
+
+    const NODES: usize = 128;
+    var insts = try allocator.alloc(Instruction, NODES + 1);
+    defer allocator.free(insts);
+
+    // Build a complex network of splits that creates many paths
+    // Each node splits to two others, creating a binary tree-like structure
+    for (0..NODES) |i| {
+        const left = if (i * 2 + 1 < NODES) i * 2 + 1 else NODES;
+        const right = if (i * 2 + 2 < NODES) i * 2 + 2 else NODES;
+        insts[i] = Instruction.new(left, InstructionData{ .Split = right });
+    }
+    insts[NODES] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    var input = input_new.Input.init("", .bytes);
+
+    try nfa.addClosureFrom(0, program.slot_count, &input, &nfa.thread_set.current);
+
+    // Should visit multiple paths through the split network
+    var count: usize = 0;
+    var it = nfa.thread_set.current.firstSet();
+    while (it) |pc| : (it = nfa.thread_set.current.nextSet(pc)) {
+        count += 1;
+    }
+
+    // Should visit several nodes but not all (due to tree structure)
+    try std.testing.expect(count > 5);
+    try std.testing.expect(count <= NODES + 1);
+}
+
+test "ThompsonNfa epsilon-closure: mixed instruction types stress test" {
+    const allocator = std.testing.allocator;
+
+    const SIZE: usize = 200;
+    var insts = try allocator.alloc(Instruction, SIZE + 1);
+    defer allocator.free(insts);
+
+    // Create a mix of different epsilon instruction types
+    for (0..SIZE) |i| {
+        const next = if (i + 1 < SIZE) i + 1 else SIZE;
+        const next_next = if (i + 2 < SIZE) i + 2 else SIZE;
+
+        // Alternate between different epsilon instruction types
+        switch (i % 4) {
+            0 => insts[i] = Instruction.new(next, InstructionData{ .Split = next_next }),
+            1 => insts[i] = Instruction.new(next, InstructionData.Jump),
+            2 => insts[i] = Instruction.new(next, InstructionData{ .Save = @mod(i, 10) }),
+            3 => insts[i] = Instruction.new(next, InstructionData{ .EmptyMatch = parser.Assertion.BeginLine }),
+            else => unreachable,
+        }
+    }
+    insts[SIZE] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 10,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    var slots = std.ArrayListUnmanaged(?usize){};
+    try slots.resize(allocator, program.slot_count);
+    defer slots.deinit(allocator);
+    nfa.setSlots(&slots);
+
+    var input = input_new.Input.init("", .bytes);
+
+    try nfa.addClosureFrom(0, program.slot_count, &input, &nfa.thread_set.current);
+
+    // Should process all instruction types without error
+    var count: usize = 0;
+    var it = nfa.thread_set.current.firstSet();
+    while (it) |pc| : (it = nfa.thread_set.current.nextSet(pc)) {
+        count += 1;
+    }
+
+    try std.testing.expect(count > 0);
+    try std.testing.expect(count <= SIZE + 1);
 }

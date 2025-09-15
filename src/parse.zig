@@ -88,9 +88,12 @@ pub const Expr = union(enum) {
         };
     }
 
-    pub fn deinit(re: *Expr) void {
+    pub fn deinit(re: *Expr, allocator: Allocator) void {
         switch (re.*) {
             .ByteClass => |*bc| bc.deinit(),
+            .Concat => |*concat| concat.deinit(allocator),
+            .Alternate => |*alternate| alternate.deinit(allocator),
+            else => {},
         }
     }
 };
@@ -250,9 +253,14 @@ pub const ParserOptions = struct {
     // This must be bounded as these are unrolled by the engine into individual branches and
     // otherwise are a vector for memory exhaustion attacks.
     max_repeat_length: usize,
+    // Whether ^ and $ match at the start/end of lines (not just start/end of text)
+    multiline: bool,
 
     pub fn default() ParserOptions {
-        return ParserOptions{ .max_repeat_length = 1000 };
+        return ParserOptions{ 
+            .max_repeat_length = 1000,
+            .multiline = false,
+        };
     }
 };
 
@@ -288,6 +296,10 @@ pub const Parser = struct {
     pub fn deinit(p: *Parser) void {
         p.stack.deinit(p.allocator);
         p.arena.deinit();
+    }
+
+    pub fn deinitExpr(p: *Parser, expr: *Expr) void {
+        expr.deinit(p.allocator);
     }
 
     pub fn reset(p: *Parser) void {

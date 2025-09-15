@@ -39,12 +39,23 @@ pub fn InputInterface(comptime kind: InputKind) type {
         // 基础数据
         bytes: []const u8,
         byte_pos: usize,
+        // 多行模式支持
+        multiline: bool,
 
         // 编译时特化的方法
         pub fn init(bytes: []const u8) Self {
             return Self{
                 .bytes = bytes,
                 .byte_pos = 0,
+                .multiline = false,
+            };
+        }
+
+        pub fn initWithMultiline(bytes: []const u8, multiline: bool) Self {
+            return Self{
+                .bytes = bytes,
+                .byte_pos = 0,
+                .multiline = multiline,
             };
         }
 
@@ -95,6 +106,7 @@ pub fn InputInterface(comptime kind: InputKind) type {
             return Self{
                 .bytes = self.bytes,
                 .byte_pos = self.byte_pos,
+                .multiline = self.multiline,
             };
         }
 
@@ -273,6 +285,7 @@ pub fn InputInterface(comptime kind: InputKind) type {
             var temp_input = Self{
                 .bytes = self.bytes,
                 .byte_pos = pos,
+                .multiline = self.multiline,
             };
 
             return temp_input.isCurrentWordCharUtf8();
@@ -285,6 +298,7 @@ pub fn InputInterface(comptime kind: InputKind) type {
             var temp_input = Self{
                 .bytes = self.bytes,
                 .byte_pos = self.byte_pos,
+                .multiline = self.multiline,
             };
 
             temp_input.advanceUtf8();
@@ -295,8 +309,14 @@ pub fn InputInterface(comptime kind: InputKind) type {
         pub fn isEmptyMatch(self: Self, match: Assertion) bool {
             return switch (match) {
                 Assertion.None => true,
-                Assertion.BeginLine => self.byte_pos == 0,
-                Assertion.EndLine => self.byte_pos >= self.bytes.len,
+                Assertion.BeginLine => if (self.multiline) 
+                    self.byte_pos == 0 or (self.byte_pos > 0 and self.bytes[self.byte_pos - 1] == '\n')
+                else
+                    self.byte_pos == 0,
+                Assertion.EndLine => if (self.multiline)
+                    self.byte_pos >= self.bytes.len or (self.byte_pos < self.bytes.len and self.bytes[self.byte_pos] == '\n')
+                else
+                    self.byte_pos >= self.bytes.len,
                 Assertion.BeginText => self.byte_pos == 0,
                 Assertion.EndText => self.byte_pos >= self.bytes.len,
                 Assertion.WordBoundaryAscii => self.isPreviousWordChar() != self.isCurrentWordChar(),
@@ -319,6 +339,13 @@ pub const Input = union(InputKind) {
         return switch (kind) {
             .bytes => Input{ .bytes = InputBytes.init(bytes) },
             .utf8 => Input{ .utf8 = InputUtf8.init(bytes) },
+        };
+    }
+
+    pub fn initWithMultiline(bytes: []const u8, comptime kind: InputKind, multiline: bool) Input {
+        return switch (kind) {
+            .bytes => Input{ .bytes = InputBytes.initWithMultiline(bytes, multiline) },
+            .utf8 => Input{ .utf8 = InputUtf8.initWithMultiline(bytes, multiline) },
         };
     }
 
