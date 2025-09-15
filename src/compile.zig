@@ -10,6 +10,7 @@ const Parser = parser.Parser;
 const ByteClass = parser.ByteClass;
 const Expr = parser.Expr;
 const Assertion = parser.Assertion;
+const literal_engine = @import("literal_engine.zig");
 
 pub const InstructionData = union(enum) {
     // Match the specified character.
@@ -124,6 +125,17 @@ pub const Program = struct {
     slot_count: usize,
     // Allocator which owns the instructions
     allocator: Allocator,
+    // 字面量优化信息
+    literal_optimization: LiteralOptimization,
+
+    pub const LiteralOptimization = struct {
+        /// 是否启用字面量优化
+        enabled: bool,
+        /// 字面量内容（如果存在）
+        literal: ?[]const u8,
+        /// 优化策略
+        strategy: []const u8,
+    };
 
     pub fn init(allocator: Allocator, a: []Instruction, find_start: usize, slot_count: usize) Program {
         return Program{
@@ -132,6 +144,11 @@ pub const Program = struct {
             .start = 0,
             .find_start = find_start,
             .slot_count = slot_count,
+            .literal_optimization = .{
+                .enabled = false,
+                .literal = null,
+                .strategy = "none",
+            },
         };
     }
 
@@ -143,6 +160,9 @@ pub const Program = struct {
                 },
                 else => {},
             }
+        }
+        if (p.literal_optimization.literal) |literal| {
+            p.allocator.free(literal);
         }
         p.allocator.free(p.insts);
     }
@@ -173,16 +193,22 @@ pub const Compiler = struct {
     allocator: Allocator,
     // Capture state
     capture_index: usize,
+    // 字面量优化分析
+    literal_engine: ?literal_engine.LiteralEngine,
 
     pub fn init(a: Allocator) Compiler {
         return Compiler{
             .insts = ArrayListUnmanaged(PartialInst).empty,
             .allocator = a,
             .capture_index = 0,
+            .literal_engine = null,
         };
     }
 
     pub fn deinit(c: *Compiler) void {
+        if (c.literal_engine) |*engine| {
+            engine.deinit();
+        }
         c.insts.deinit(c.allocator);
     }
 
@@ -194,6 +220,9 @@ pub const Compiler = struct {
 
     // Compile the regex expression
     pub fn compile(c: *Compiler, expr: *const Expr) !Program {
+        // 分析字面量优化机会
+        c.analyzeLiteralOptimization(expr);
+
         // surround in a full program match
         const entry = c.insts.items.len;
         const index = c.nextCaptureIndex();
@@ -242,7 +271,11 @@ pub const Compiler = struct {
         };
         try p.appendSlice(c.allocator, &fragment);
 
-        return Program.init(c.allocator, try p.toOwnedSlice(c.allocator), fragment_start, c.capture_index);
+        // 构建带有字面量优化信息的程序
+        var program = Program.init(c.allocator, try p.toOwnedSlice(c.allocator), fragment_start, c.capture_index);
+        c.setupLiteralOptimization(&program);
+
+        return program;
     }
 
     fn compileInternal(c: *Compiler, expr: *const Expr) Allocator.Error!Patch {
@@ -287,7 +320,8 @@ pub const Compiler = struct {
 
                     var i: usize = 1;
                     while (i < repeat.min) : (i += 1) {
-                        const new_subexpr = try repeat.subexpr.clone(c.allocator);
+                        var new_subexpr = try repeat.subexpr.clone(c.allocator);
+                        defer new_subexpr.deinit(c.allocator);
                         const ep = try c.compileInternal(&new_subexpr);
                         c.fill(hole, ep.entry);
                         hole = ep.hole;
@@ -295,6 +329,7 @@ pub const Compiler = struct {
 
                     // add final e* infinite capture
                     var new_subexpr = try repeat.subexpr.clone(c.allocator);
+                    defer new_subexpr.deinit(c.allocator);
                     const st = try c.compileStar(&new_subexpr, repeat.greedy);
                     c.fill(hole, st.entry);
 
@@ -309,7 +344,8 @@ pub const Compiler = struct {
 
                     var i: usize = 1;
                     while (i < repeat.min) : (i += 1) {
-                        const new_subexpr = try repeat.subexpr.clone(c.allocator);
+                        var new_subexpr = try repeat.subexpr.clone(c.allocator);
+                        defer new_subexpr.deinit(c.allocator);
                         const ep = try c.compileInternal(&new_subexpr);
                         c.fill(hole, ep.entry);
                         hole = ep.hole;
@@ -318,6 +354,7 @@ pub const Compiler = struct {
                     // repeated optional concatenations
                     while (i < repeat.max.?) : (i += 1) {
                         var new_subexpr = try repeat.subexpr.clone(c.allocator);
+                        defer new_subexpr.deinit(c.allocator);
                         const ep = try c.compileQuestion(&new_subexpr, repeat.greedy);
                         c.fill(hole, ep.entry);
                         hole = ep.hole;
@@ -536,5 +573,54 @@ pub const Compiler = struct {
     // Patch a hole to point to the next instruction
     fn fillToNext(c: *Compiler, hole: Hole) void {
         c.fill(hole, c.insts.items.len);
+    }
+
+    // 分析字面量优化机会
+    fn analyzeLiteralOptimization(c: *Compiler, expr: *const Expr) void {
+        // 初始化字面量引擎
+        const literal_engine_instance = literal_engine.LiteralEngine.init(c.allocator);
+        c.literal_engine = literal_engine_instance;
+
+        // 分析表达式以获取字面量候选者
+        if (c.literal_engine) |*engine| {
+            engine.analyze(expr) catch {
+                // 如果分析失败，禁用字面量优化
+                engine.deinit();
+                c.literal_engine = null;
+                return;
+            };
+        }
+    }
+
+    // 设置字面量优化信息到程序中
+    fn setupLiteralOptimization(c: *Compiler, program: *Program) void {
+        if (c.literal_engine) |*engine| {
+            defer engine.deinit();
+
+            if (engine.canOptimize()) {
+                const literal = engine.getLiteral();
+                if (literal) |lit| {
+                    program.literal_optimization = .{
+                        .enabled = true,
+                        .literal = c.allocator.dupe(u8, lit) catch null,
+                        .strategy = switch (engine.getStrategy()) {
+                            .FixedString => "fixed_string",
+                            .BoyerMoore => "boyer_moore",
+                            .AhoCorasick => "aho_corasick",
+                            else => "none",
+                        },
+                    };
+                }
+            }
+        }
+
+        // 如果没有字面量引擎或优化不可用，设置默认值
+        if (!program.literal_optimization.enabled) {
+            program.literal_optimization = .{
+                .enabled = false,
+                .literal = null,
+                .strategy = "none",
+            };
+        }
     }
 };

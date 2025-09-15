@@ -35,13 +35,7 @@ pub fn benchmarkEpsilonClosure(allocator: Allocator, nfa_size: usize, complexity
     }
     insts[nfa_size] = compile.Instruction.new(0, compile.InstructionData.Match);
 
-    var program = compile.Program{
-        .insts = insts,
-        .start = 0,
-        .find_start = 0,
-        .slot_count = 0,
-        .allocator = allocator,
-    };
+    var program = compile.Program.init(allocator, insts, 0, 0);
 
     var nfa = try ThompsonNfa.init(allocator, &program);
     defer nfa.deinit();
@@ -121,13 +115,7 @@ fn createSimpleProgram(allocator: Allocator, pattern: []const u8) !compile.Progr
     }
     insts[pattern.len] = compile.Instruction.new(0, compile.InstructionData.Match);
 
-    return compile.Program{
-        .insts = insts,
-        .start = 0,
-        .find_start = 0,
-        .slot_count = 0,
-        .allocator = allocator,
-    };
+    return compile.Program.init(allocator, insts, 0, 0);
 }
 
 /// Get current memory usage (platform-dependent approximation)

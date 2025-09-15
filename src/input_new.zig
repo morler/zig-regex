@@ -412,4 +412,11 @@ pub const Input = union(InputKind) {
             .utf8 => |u| u.bytes.len,
         };
     }
+
+    pub fn asBytes(self: Input) []const u8 {
+        return switch (self) {
+            .bytes => |b| b.bytes,
+            .utf8 => |u| u.bytes,
+        };
+    }
 };

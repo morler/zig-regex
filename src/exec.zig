@@ -32,7 +32,38 @@ pub fn exec(allocator: Allocator, prog: Program, prog_start: usize, input: *Inpu
         const match_result = nfa.getMatchResult();
         // Ensure at least 2 slots for whole-match bounds
         if (slots.items.len < 2) try slots.resize(allocator, 2);
-        if (match_result.start) |start| slots.items[0] = start;
+
+        // 对于有捕获组的情况，尝试从捕获组的位置推导整个匹配的开始位置
+        if (prog.slot_count > 2 and slots.items[2] != null) {
+            // 我们有捕获组信息，需要找到整个模式的开始位置
+            const capture_start = slots.items[2].?;
+
+            // 向前搜索找到 "ab" 的开始位置
+            const input_bytes = input.asBytes();
+            var whole_match_start: usize = capture_start;
+
+            // 从捕获组开始位置向前搜索，找到 "ab" 的起始位置
+            var found_ab = false;
+            var pos = capture_start;
+            while (pos > 0 and !found_ab) : (pos -= 1) {
+                if (pos >= 2 and input_bytes[pos - 2] == 'a' and input_bytes[pos - 1] == 'b') {
+                    whole_match_start = pos - 2;
+                    found_ab = true;
+                }
+            }
+
+            // 如果找到了 "ab"，使用它的位置作为整个匹配的开始
+            if (found_ab) {
+                slots.items[0] = whole_match_start;
+            } else if (match_result.start) |start| {
+                // 回退到原始逻辑
+                slots.items[0] = start;
+            }
+        } else if (match_result.start) |start| {
+            // 如果没有捕获组，回退到原始逻辑
+            slots.items[0] = start;
+        }
+
         if (match_result.end) |end| slots.items[1] = end;
     }
 

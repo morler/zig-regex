@@ -139,8 +139,11 @@ test "regex captures" {
     var caps = (try r.captures("xxxxab0123a")).?;
     defer caps.deinit();
 
-    debug.assert(mem.eql(u8, "ab0123", caps.sliceAt(0).?));
-    debug.assert(mem.eql(u8, "0123", caps.sliceAt(1).?));
+    const capture0 = caps.sliceAt(0).?;
+    const capture1 = caps.sliceAt(1).?;
+
+    debug.assert(mem.eql(u8, "ab0123", capture0));
+    debug.assert(mem.eql(u8, "0123", capture1));
 }
 
 test "regex memory leaks" {

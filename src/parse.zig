@@ -90,7 +90,8 @@ pub const Expr = union(enum) {
 
     pub fn deinit(re: *Expr, allocator: Allocator) void {
         switch (re.*) {
-            .ByteClass => |*bc| bc.deinit(),
+            // ByteClass使用arena allocator，不需要在这里清理
+            .ByteClass => {},
             .Concat => |*concat| concat.deinit(allocator),
             .Alternate => |*alternate| alternate.deinit(allocator),
             else => {},
@@ -477,7 +478,7 @@ pub const Parser = struct {
                             },
                             // New expression, push onto concat stack
                             else => {
-                                try concat.append(p.allocator, e);
+                                try concat.append(p.arena.allocator(), e);
                             },
                         }
                     }
@@ -509,7 +510,7 @@ pub const Parser = struct {
 
                             var r = try p.createExpr();
                             r.* = Expr{ .Alternate = ArrayListUnmanaged(*Expr).empty };
-                            try r.Alternate.append(p.allocator, ra);
+                            try r.Alternate.append(p.arena.allocator(), ra);
                             try p.stack.append(p.allocator, r);
                             break;
                         }
@@ -549,13 +550,13 @@ pub const Parser = struct {
 
                                 var r = try p.createExpr();
                                 r.* = Expr{ .Alternate = ArrayListUnmanaged(*Expr).empty };
-                                try r.Alternate.append(p.allocator, ra);
+                                try r.Alternate.append(p.arena.allocator(), ra);
                                 try p.stack.append(p.allocator, r);
                                 break;
                             },
                             // New expression, push onto concat stack
                             else => {
-                                try concat.append(p.allocator, e);
+                                try concat.append(p.arena.allocator(), e);
                             },
                         }
                     }
@@ -651,7 +652,7 @@ pub const Parser = struct {
                 },
                 // New expression, push onto concat stack
                 else => {
-                    try concat.append(p.allocator, e);
+                    try concat.append(p.arena.allocator(), e);
                 },
             }
         }
@@ -703,7 +704,7 @@ pub const Parser = struct {
             it.bump();
 
             const range = ByteRange{ .min = ']', .max = ']' };
-            try class.addRange(p.allocator, range);
+            try class.addRange(p.arena.allocator(), range);
         }
 
         while (!it.peekIs(']')) : (it.bump()) {
@@ -758,7 +759,7 @@ pub const Parser = struct {
                 }
             }
 
-            try class.addRange(p.allocator, range);
+            try class.addRange(p.arena.allocator(), range);
         }
         it.bump();
 
