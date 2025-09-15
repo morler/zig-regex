@@ -734,8 +734,10 @@ pub const LazyDfa = struct {
         const state_ptr = &self.states.items[state_id];
         try state_ptr.addTransition(self.allocator, class_id, new_state_id);
 
-        // 将新状态添加到缓存
-        _ = self.cache.getOrCreateState(&self.scratch_space.merge_buffer, new_state_id) catch {};
+        // 安全地添加到缓存，添加边界检查
+        if (self.scratch_space.merge_buffer.capacity > 0) {
+            _ = self.cache.getOrCreateState(&self.scratch_space.merge_buffer, new_state_id) catch {};
+        }
 
         self.stats.states_created += 1;
         self.stats.transitions_computed += 1;
