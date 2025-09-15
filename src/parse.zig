@@ -90,8 +90,7 @@ pub const Expr = union(enum) {
 
     pub fn deinit(re: *Expr, allocator: Allocator) void {
         switch (re.*) {
-            // ByteClass使用arena allocator，不需要在这里清理
-            .ByteClass => {},
+            .ByteClass => |*bc| bc.deinit(allocator),
             .Concat => |*concat| concat.deinit(allocator),
             .Alternate => |*alternate| alternate.deinit(allocator),
             else => {},

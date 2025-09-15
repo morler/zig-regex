@@ -39,32 +39,39 @@ pub const DfaState = struct {
     is_match: bool,
     // 匹配长度（如果 is_match 为 true）
     match_len: ?usize = null,
-    // 转移表
-    transitions: AutoHashMap(ClassId, StateId),
+    // 转移表 - 使用线性搜索的简单实现
+    transitions: ArrayListUnmanaged(struct { class_id: ClassId, target_id: StateId }),
     // 默认转移（用于未分类的字符）
     default_transition: ?StateId = null,
     // 状态是否已被最小化
     minimized: bool = false,
 
-    pub fn init(allocator: Allocator, id: StateId, nfa_states: BitVector) !DfaState {
+    pub fn init(_: Allocator, id: StateId, nfa_states: BitVector) !DfaState {
         return DfaState{
             .id = id,
             .nfa_states = nfa_states,
             .is_match = false,
-            .transitions = AutoHashMap(ClassId, StateId).init(allocator),
+            .transitions = .{},
             .default_transition = null,
             .minimized = false,
         };
     }
 
-    pub fn deinit(self: *DfaState) void {
+    pub fn deinit(self: *DfaState, allocator: Allocator) void {
         self.nfa_states.deinit();
-        self.transitions.deinit();
+        self.transitions.deinit(allocator);
     }
 
-    // 添加转移
-    pub fn addTransition(self: *DfaState, class_id: ClassId, target_id: StateId) !void {
-        try self.transitions.put(class_id, target_id);
+    // 添加转移 - 检查是否已存在相同的转移
+    pub fn addTransition(self: *DfaState, allocator: Allocator, class_id: ClassId, target_id: StateId) !void {
+        // 检查是否已存在相同的转移
+        for (self.transitions.items) |transition| {
+            if (transition.class_id == class_id and transition.target_id == target_id) {
+                // 已存在，不重复添加
+                return;
+            }
+        }
+        try self.transitions.append(allocator, .{ .class_id = class_id, .target_id = target_id });
     }
 
     // 设置默认转移
@@ -74,7 +81,12 @@ pub const DfaState = struct {
 
     // 获取转移目标
     pub fn getTransition(self: *const DfaState, class_id: ClassId) ?StateId {
-        return self.transitions.get(class_id);
+        for (self.transitions.items) |transition| {
+            if (transition.class_id == class_id) {
+                return transition.target_id;
+            }
+        }
+        return null;
     }
 };
 
@@ -183,6 +195,20 @@ pub const DfaCache = struct {
             hasher.update(std.mem.asBytes(&bit));
         }
         return hasher.final();
+    }
+
+    // 查找已存在的DFA状态
+    pub fn findState(self: *DfaCache, nfa_states: *const BitVector) !?StateId {
+        const hash = computeNfaStatesHash(nfa_states);
+
+        // 检查是否已存在
+        if (self.state_map.get(hash)) |existing_id| {
+            // 更新 LRU
+            self.moveToFront(existing_id);
+            return existing_id;
+        }
+
+        return null;
     }
 
     // 获取或创建 DFA 状态
@@ -372,7 +398,7 @@ pub const LazyDfa = struct {
 
     pub fn deinit(self: *LazyDfa) void {
         for (self.states.items) |*state| {
-            state.deinit();
+            state.deinit(self.allocator);
         }
         self.states.deinit(self.allocator);
         self.classifier.deinit();
@@ -394,32 +420,45 @@ pub const LazyDfa = struct {
 
     // 构建字符分类器
     fn buildCharClassifier(self: *LazyDfa) !void {
+        var next_class_id: ClassId = 0;
+
         // 分析 NFA 程序中的所有字符类
         for (self.program.insts) |inst| {
             switch (inst.data) {
                 .Char => |char| {
-                    // 每个字符作为一个独立的类
-                    const class_id = @as(ClassId, @intCast(char));
-                    try self.classifier.addChar(char, class_id);
+                    // 如果字符还没有分类，创建一个新类
+                    if (self.classifier.getClassId(char) == null) {
+                        try self.classifier.addChar(char, next_class_id);
+                        next_class_id += 1;
+                    }
                 },
                 .ByteClass => |byte_class| {
-                    // TODO: 处理字节类，将其分解为字符类
-                    // 暂时将字节类中的每个字符作为独立类
+                    // 为字节类中的所有字符分配相同的类ID
+                    var class_assigned = false;
                     for (byte_class.ranges.items) |range| {
                         var c = range.min;
                         while (c <= range.max) : (c += 1) {
-                            const class_id = @as(ClassId, @intCast(c));
-                            try self.classifier.addChar(c, class_id);
+                            if (self.classifier.getClassId(c) == null) {
+                                try self.classifier.addChar(c, next_class_id);
+                                class_assigned = true;
+                            }
                         }
+                    }
+                    if (class_assigned) {
+                        next_class_id += 1;
                     }
                 },
                 .AnyCharNotNL => {
                     // 除了换行符外的所有字符作为一类
                     for (0..255) |c| {
-                        if (c != '\n') {
-                            try self.classifier.addChar(@as(u8, @intCast(c)), 256); // 特殊类 ID
+                        if (c != '\n' and self.classifier.getClassId(@as(u8, @intCast(c))) == null) {
+                            try self.classifier.addChar(@as(u8, @intCast(c)), next_class_id);
                         }
                     }
+                    if (self.classifier.getClassId('\n') == null) {
+                        try self.classifier.addChar('\n', next_class_id + 1);
+                    }
+                    next_class_id += 2;
                 },
                 else => {},
             }
@@ -430,7 +469,21 @@ pub const LazyDfa = struct {
     fn createStartState(self: *LazyDfa) !void {
         // 计算初始状态的 epsilon 闭包
         const start_pc = self.program.start;
+        std.debug.print("DFA createStartState: start_pc = {}\n", .{start_pc});
         try self.computeEpsilonClosure(start_pc, &self.scratch_space.closure_buffer);
+        std.debug.print("DFA createStartState: epsilon closure contains states: ", .{});
+        for (self.scratch_space.closure_buffer.getBits(), 0..) |bit_word, bit_index| {
+            if (bit_word != 0) {
+                for (0..64) |bit_idx| {
+                    const bit_offset: u6 = @intCast(bit_idx);
+                    if ((bit_word & (@as(u64, 1) << bit_offset)) != 0) {
+                        const pc = bit_index * 64 + bit_offset;
+                        std.debug.print("{} ", .{pc});
+                    }
+                }
+            }
+        }
+        std.debug.print("\n", .{});
 
         // 创建 DFA 状态
         const state_id = @as(StateId, @intCast(self.states.items.len));
@@ -527,6 +580,7 @@ pub const LazyDfa = struct {
 
     // 执行匹配
     pub fn execute(self: *LazyDfa, input: *Input) !bool {
+        std.debug.print("DFA execute: current_state = {?}\n", .{self.current_state});
         if (self.current_state == null) {
             return false;
         }
@@ -534,11 +588,15 @@ pub const LazyDfa = struct {
         var current_pos: usize = 0;
         var state_id = self.current_state.?;
 
+        std.debug.print("DFA execute: input length = {}\n", .{input.getLength()});
+
         while (current_pos < input.getLength()) {
             const char = input.at(current_pos);
+            std.debug.print("DFA execute: pos={}, char='{}'\n", .{current_pos, char});
 
             // 获取字符类
             const class_id = self.classifier.getClassId(char) orelse {
+                std.debug.print("DFA execute: char '{}' not classified\n", .{char});
                 // 未分类的字符，尝试默认转移
                 const state = &self.states.items[state_id];
                 if (state.default_transition) |default_id| {
@@ -549,12 +607,14 @@ pub const LazyDfa = struct {
                     return false;
                 }
             };
+            std.debug.print("DFA execute: char '{}' classified as {}\n", .{char, class_id});
 
             // 获取当前状态
             const state = &self.states.items[state_id];
 
             // 检查是否已有转移
             if (state.getTransition(class_id)) |next_id| {
+                std.debug.print("DFA execute: found existing transition {} -> {}\n", .{state_id, next_id});
                 state_id = next_id;
                 current_pos += 1;
                 continue;
@@ -562,6 +622,7 @@ pub const LazyDfa = struct {
 
             // 需要计算新的转移
             const next_id = try self.computeTransition(state_id, class_id);
+            std.debug.print("DFA execute: computed new transition {} -> {} = {?}\n", .{state_id, class_id, next_id});
             if (next_id == null) {
                 return false;
             }
@@ -572,15 +633,18 @@ pub const LazyDfa = struct {
 
         // 检查最终状态是否为匹配状态
         const final_state = &self.states.items[state_id];
+        std.debug.print("DFA execute: final state_id = {}, is_match = {}\n", .{state_id, final_state.is_match});
         return final_state.is_match;
     }
 
     // 计算状态转移
     fn computeTransition(self: *LazyDfa, state_id: StateId, class_id: ClassId) !?StateId {
+        std.debug.print("DFA computeTransition: state_id={}, class_id={}, current states.len={}\n", .{state_id, class_id, self.states.items.len});
         const state = &self.states.items[state_id];
         self.scratch_space.transition_buffer.clear();
 
         // 对 NFA 状态集合中的每个状态计算字符转移
+        std.debug.print("DFA computeTransition: processing NFA states in state_id={}\n", .{state_id});
         for (state.nfa_states.getBits(), 0..) |bit_word, bit_index| {
             if (bit_word != 0) {
                 for (0..64) |bit_idx| {
@@ -589,6 +653,7 @@ pub const LazyDfa = struct {
                         const pc = bit_index * 64 + bit_offset;
                         if (pc < self.program.insts.len) {
                             const inst = &self.program.insts[pc];
+                            std.debug.print("DFA computeTransition: processing inst {} at pc {}\n", .{inst.data, pc});
                             try self.applyCharTransition(inst, class_id, &self.scratch_space.transition_buffer);
                         }
                     }
@@ -596,9 +661,23 @@ pub const LazyDfa = struct {
             }
         }
 
+        // Debug: 打印字符转移结果
+        std.debug.print("DFA computeTransition: transition buffer after char transitions: ", .{});
+        for (self.scratch_space.transition_buffer.getBits(), 0..) |bit_word, bit_index| {
+            if (bit_word != 0) {
+                for (0..64) |bit_idx| {
+                    const bit_offset: u6 = @intCast(bit_idx);
+                    if ((bit_word & (@as(u64, 1) << bit_offset)) != 0) {
+                        const pc = bit_index * 64 + bit_offset;
+                        std.debug.print("{} ", .{pc});
+                    }
+                }
+            }
+        }
+        std.debug.print("\n", .{});
+
         // 计算转移后状态集合的 epsilon 闭包
-        var closure_result = BitVector.init(self.allocator, self.program.insts.len) catch return null;
-        defer closure_result.deinit();
+        self.scratch_space.merge_buffer.clear();
 
         for (self.scratch_space.transition_buffer.getBits(), 0..) |bit_word, bit_index| {
             if (bit_word != 0) {
@@ -606,38 +685,60 @@ pub const LazyDfa = struct {
                     const bit_offset: u6 = @intCast(bit_idx);
                     if ((bit_word & (@as(u64, 1) << bit_offset)) != 0) {
                         const pc = bit_index * 64 + bit_offset;
-                        try self.computeEpsilonClosure(pc, &closure_result);
+                        try self.computeEpsilonClosure(pc, &self.scratch_space.merge_buffer);
                     }
                 }
             }
         }
 
-        // 检查缓存
-        const cached_id = self.cache.getOrCreateState(&closure_result, 0) catch null;
+        // Debug: 打印最终 epsilon 闭包结果
+        std.debug.print("DFA computeTransition: final epsilon closure: ", .{});
+        for (self.scratch_space.merge_buffer.getBits(), 0..) |bit_word, bit_index| {
+            if (bit_word != 0) {
+                for (0..64) |bit_idx| {
+                    const bit_offset: u6 = @intCast(bit_idx);
+                    if ((bit_word & (@as(u64, 1) << bit_offset)) != 0) {
+                        const pc = bit_index * 64 + bit_offset;
+                        std.debug.print("{} ", .{pc});
+                    }
+                }
+            }
+        }
+
+        // 检查缓存是否已有相同NFA状态集的DFA状态
+        const cached_id = self.cache.findState(&self.scratch_space.merge_buffer) catch null;
         if (cached_id) |id| {
-            self.stats.cache_hits += 1;
-            try state.addTransition(class_id, id);
+                    self.stats.cache_hits += 1;
+            try state.addTransition(self.allocator, class_id, id);
             return id;
         }
 
         self.stats.cache_misses += 1;
 
-        // 创建新状态
+        // 创建新状态 - 添加安全检查防止无限状态创建
+        if (self.states.items.len >= 1000) {
+            std.debug.print("DFA computeTransition: too many states created, potential infinite loop\n", .{});
+            return error.TooManyStates;
+        }
         const new_state_id = @as(StateId, @intCast(self.states.items.len));
         var new_state = try DfaState.init(
             self.allocator,
             new_state_id,
-            try closure_result.clone()
+            try self.scratch_space.merge_buffer.clone()
         );
 
         new_state.is_match = self.isMatchState(&new_state.nfa_states);
 
         try self.states.append(self.allocator, new_state);
-        try state.addTransition(class_id, new_state_id);
+        try state.addTransition(self.allocator, class_id, new_state_id);
+
+        // 将新状态添加到缓存
+        _ = self.cache.getOrCreateState(&self.scratch_space.merge_buffer, new_state_id) catch {};
 
         self.stats.states_created += 1;
         self.stats.transitions_computed += 1;
 
+        std.debug.print("DFA computeTransition: returning new_state_id={}\n", .{new_state_id});
         return new_state_id;
     }
 
@@ -654,17 +755,21 @@ pub const LazyDfa = struct {
             .ByteClass => |byte_class| {
                 // 检查字符是否在字节类中
                 for (byte_class.ranges.items) |range| {
-                    if (self.classifier.getClassId(range.min)) |start_class_id| {
-                        if (start_class_id == class_id) {
-                            result.set(inst.out);
-                            break;
+                    var c = range.min;
+                    while (c <= range.max) : (c += 1) {
+                        if (self.classifier.getClassId(c)) |char_class_id| {
+                            if (char_class_id == class_id) {
+                                result.set(inst.out);
+                                break;
+                            }
                         }
                     }
                 }
             },
             .AnyCharNotNL => {
                 // 任何非换行符都匹配
-                if (class_id != 256) { // 256 是换行符的类 ID
+                const nl_class_id = self.classifier.getClassId('\n') orelse 256;
+                if (class_id != nl_class_id) {
                     result.set(inst.out);
                 }
             },
