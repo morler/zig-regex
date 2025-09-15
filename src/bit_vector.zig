@@ -62,6 +62,23 @@ pub const BitVector = struct {
         return (self.data[word_index] & (@as(usize, 1) << bit_index)) != 0;
     }
 
+    // 克隆位向量
+    pub fn clone(self: *const BitVector) !BitVector {
+        const new_data = try self.allocator.alloc(usize, self.data.len);
+        @memcpy(new_data, self.data);
+
+        return BitVector{
+            .data = new_data,
+            .capacity = self.capacity,
+            .allocator = self.allocator,
+        };
+    }
+
+    // 获取位向量的底层数据
+    pub fn getBits(self: *const BitVector) []usize {
+        return self.data;
+    }
+
     // 获取第一个为1的位的索引
     pub fn firstSet(self: *const BitVector) ?usize {
         for (self.data, 0..) |word, word_index| {

@@ -419,4 +419,11 @@ pub const Input = union(InputKind) {
             .utf8 => |u| u.bytes,
         };
     }
+
+  pub fn at(self: Input, pos: usize) u8 {
+        return switch (self) {
+            .bytes => |b| b.bytes[pos],
+            .utf8 => |u| u.bytes[pos],
+        };
+    }
 };

@@ -4,4 +4,5 @@ test "all" {
     _ = @import("regex_test.zig");
     _ = @import("thompson_nfa2.zig");
     _ = @import("benchmark.zig");
+    _ = @import("lazy_dfa_test.zig");
 }
