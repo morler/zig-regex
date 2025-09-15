@@ -330,34 +330,42 @@ test "Unicode regex edge cases" {
     const allocator = testing.allocator;
 
     // 空字符串
-    var regex = try UnicodeRegex.init(allocator, "");
-    defer regex.deinit();
-    try testing.expect(try regex.match(""));
+    {
+        var regex = try UnicodeRegex.init(allocator, "");
+        defer regex.deinit();
+        try testing.expect(try regex.match(""));
+    }
 
     // 空模式
-    regex = try UnicodeRegex.init(allocator, "");
-    defer regex.deinit();
-    try testing.expect(try regex.match("anything"));
+    {
+        var regex = try UnicodeRegex.init(allocator, "");
+        defer regex.deinit();
+        try testing.expect(try regex.match("anything"));
+    }
 
     // 无效UTF-8序列处理
-    const invalid_utf8 = "Hello\x80World"; // 无效的UTF-8序列
-    regex = try UnicodeRegex.init(allocator, "Hello");
-    defer regex.deinit();
+    {
+        const invalid_utf8 = "Hello\x80World"; // 无效的UTF-8序列
+        var regex = try UnicodeRegex.init(allocator, "Hello");
+        defer regex.deinit();
 
-    // 应该优雅地处理无效UTF-8
-    const result = try regex.match(invalid_utf8);
-    try testing.expect(result); // 仍然可以匹配有效的部分
+        // 应该优雅地处理无效UTF-8
+        const result = try regex.match(invalid_utf8);
+        try testing.expect(result); // 仍然可以匹配有效的部分
+    }
 
     // 超长Unicode字符测试（简化）
-    const long_text = "世界世界世界世界世界"; // 简化的长文本
-    regex = try UnicodeRegex.init(allocator, "世界");
-    defer regex.deinit();
+    {
+        const long_text = "世界世界世界世界世界"; // 简化的长文本
+        var regex = try UnicodeRegex.init(allocator, "世界");
+        defer regex.deinit();
 
-    const matches = try regex.findAll(long_text, allocator);
-    defer allocator.free(matches);
+        const matches = try regex.findAll(long_text, allocator);
+        defer allocator.free(matches);
 
-    // 简单验证函数能正常工作
-    try testing.expectEqual(@as(usize, 0), matches.len);
+        // 简单验证函数能正常工作
+        try testing.expectEqual(@as(usize, 5), matches.len);
+    }
 }
 
 // 内存泄漏测试

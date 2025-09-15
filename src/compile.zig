@@ -594,6 +594,11 @@ pub const Compiler = struct {
 
     // 设置字面量优化信息到程序中
     fn setupLiteralOptimization(c: *Compiler, program: *Program) void {
+        // 检查是否已经有字面量优化设置（避免重复设置）
+        if (program.literal_optimization.enabled) {
+            return; // 已经设置过，不再重复处理
+        }
+
         if (c.literal_engine) |*engine| {
             if (engine.canOptimize()) {
                 const literal = engine.getLiteral();
@@ -609,17 +614,16 @@ pub const Compiler = struct {
                             else => "none",
                         },
                     };
+                    return;
                 }
             }
         }
 
         // 如果没有字面量引擎或优化不可用，设置默认值
-        if (!program.literal_optimization.enabled) {
-            program.literal_optimization = .{
-                .enabled = false,
-                .literal = null,
-                .strategy = "none",
-            };
-        }
+        program.literal_optimization = .{
+            .enabled = false,
+            .literal = null,
+            .strategy = "none",
+        };
     }
 };
