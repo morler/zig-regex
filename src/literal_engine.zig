@@ -70,6 +70,7 @@ pub const LiteralEngine = struct {
 
             // 克隆候选者（分配内存）
             self.candidate = extractor.cloneCandidate(best_candidate) catch |err| {
+                // 清理错误状态，但不释放内存（因为cloneCandidate已经处理了）
                 return err;
             };
 

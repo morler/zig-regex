@@ -595,11 +595,10 @@ pub const Compiler = struct {
     // 设置字面量优化信息到程序中
     fn setupLiteralOptimization(c: *Compiler, program: *Program) void {
         if (c.literal_engine) |*engine| {
-            defer engine.deinit();
-
             if (engine.canOptimize()) {
                 const literal = engine.getLiteral();
                 if (literal) |lit| {
+                    // 复制字面量字符串，因为 LiteralEngine 将会被释放
                     program.literal_optimization = .{
                         .enabled = true,
                         .literal = c.allocator.dupe(u8, lit) catch null,

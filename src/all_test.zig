@@ -6,4 +6,5 @@ test "all" {
     _ = @import("benchmark.zig");
     _ = @import("lazy_dfa_test.zig");
     _ = @import("utf8_test.zig");
+    _ = @import("unicode_regex_test.zig");
 }
