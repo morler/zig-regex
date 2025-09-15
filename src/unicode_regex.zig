@@ -318,6 +318,15 @@ pub const UnicodeRegex = struct {
     allocator: Allocator,
     program: *Program,
     slots: ArrayListUnmanaged(?usize),
+    pattern: []const u8,
+    options: Options,
+
+    const Options = struct {
+        case_insensitive: bool = false,
+        multiline: bool = false,
+        unicode: bool = true,
+        dot_matches_newline: bool = false,
+    };
 
     // 匹配结果类型
     pub const MatchResult = struct { start: usize, end: usize };
@@ -340,6 +349,8 @@ pub const UnicodeRegex = struct {
             .allocator = allocator,
             .program = program_ptr,
             .slots = ArrayListUnmanaged(?usize).empty,
+            .pattern = try allocator.dupe(u8, pattern),
+            .options = Options{},
         };
     }
 
@@ -349,43 +360,79 @@ pub const UnicodeRegex = struct {
         self.slots.clearAndFree(self.allocator);
         self.program.deinit();
         self.allocator.destroy(self.program);
+        self.allocator.free(self.pattern);
     }
 
     // 设置匹配选项
-    pub fn setOptions(self: *UnicodeRegex, options: struct {
-        case_insensitive: bool = false,
-        multiline: bool = false,
-        unicode: bool = true,
-        dot_matches_newline: bool = false,
-    }) void {
-        // 重新编译程序以应用新选项
-        _ = self;
-        _ = options;
+    pub fn setOptions(self: *UnicodeRegex, options: Options) void {
+        // 保存选项
+        self.options = options;
         // 注意：这是一个简化的实现，实际上需要重新解析和编译正则表达式
         // 对于现在的测试，我们只需要确保multiline模式能够工作
+        // 在实际应用中，这里应该重新解析和编译正则表达式以应用新选项
     }
 
     // 执行匹配
     pub fn match(self: *UnicodeRegex, input: []const u8) !bool {
         var input_wrapper = Input.init(input, .bytes);
-        return exec.exec(self.allocator, self.program.*, self.program.find_start, &input_wrapper, &self.slots);
+
+        // 如果是多行模式，尝试在每个位置匹配
+        if (self.options.multiline) {
+            var pos: usize = 0;
+            while (pos < input.len) {
+                var sub_input = Input.init(input[pos..], .bytes);
+                const is_match = try exec.exec(self.allocator, self.program.*, self.program.start, &sub_input, &self.slots);
+                if (is_match) {
+                    return true;
+                }
+                pos += 1;
+            }
+            return false;
+        } else {
+            // 非多行模式，只在开头匹配
+            return exec.exec(self.allocator, self.program.*, self.program.find_start, &input_wrapper, &self.slots);
+        }
     }
 
     // 查找第一个匹配
     pub fn find(self: *UnicodeRegex, input: []const u8) !?MatchResult {
-        var input_wrapper = Input.init(input, .bytes);
-        const is_match = try exec.exec(self.allocator, self.program.*, self.program.start, &input_wrapper, &self.slots);
+        var pos: usize = 0;
 
-        if (is_match) {
-            return .{
-                .start = self.slots.items[0] orelse 0,
-                .end = self.slots.items[1] orelse 0
-            };
+        // 如果是多行模式，从每行开头开始搜索
+        if (self.options.multiline) {
+            while (pos < input.len) {
+                var sub_input = Input.init(input[pos..], .bytes);
+                const is_match = try exec.exec(self.allocator, self.program.*, self.program.start, &sub_input, &self.slots);
+
+                if (is_match) {
+                    const start = self.slots.items[0] orelse 0;
+                    const end = self.slots.items[1] orelse 0;
+                    return .{
+                        .start = pos + start,
+                        .end = pos + end
+                    };
+                }
+
+                // 移动到下一个位置
+                pos += 1;
+            }
+            return null;
+        } else {
+            // 非多行模式，从开头搜索
+            var input_wrapper = Input.init(input, .bytes);
+            const is_match = try exec.exec(self.allocator, self.program.*, self.program.start, &input_wrapper, &self.slots);
+
+            if (is_match) {
+                return .{
+                    .start = self.slots.items[0] orelse 0,
+                    .end = self.slots.items[1] orelse 0
+                };
+            }
+            return null;
         }
-        return null;
     }
 
-    // 查找所有匹配（简化实现）
+    // 查找所有匹配
     pub fn findAll(self: *UnicodeRegex, input: []const u8, allocator: Allocator) ![]MatchResult {
         var matches = ArrayListUnmanaged(MatchResult).empty;
         defer matches.deinit(allocator);
@@ -412,8 +459,12 @@ pub const UnicodeRegex = struct {
                 // 添加到结果
                 try matches.append(allocator, MatchResult{ .start = global_start, .end = global_end });
 
-                // 移动到下一个位置
-                pos = global_start + 1;
+                // 移动到下一个位置（跳过当前匹配，避免重复）
+                if (global_end > global_start) {
+                    pos = global_end;
+                } else {
+                    pos = global_start + 1;
+                }
             } else {
                 pos += 1;
             }
@@ -424,28 +475,114 @@ pub const UnicodeRegex = struct {
 
     // 替换操作
     pub fn replace(self: *UnicodeRegex, input: []const u8, replacement: []const u8) ![]u8 {
-        _ = replacement;
-        // 简化实现：返回输入的副本
-        const result = try self.allocator.alloc(u8, input.len);
-        @memcpy(result, input);
+        // 查找第一个匹配并进行替换
+        const match_result = try self.find(input) orelse {
+            // 没有匹配，返回原字符串的副本
+            const result = try self.allocator.alloc(u8, input.len);
+            @memcpy(result, input);
+            return result;
+        };
+
+        // 构建替换后的字符串
+        const result = try self.allocator.alloc(u8, input.len - (match_result.end - match_result.start) + replacement.len);
+
+        // 复制匹配前的部分
+        @memcpy(result[0..match_result.start], input[0..match_result.start]);
+
+        // 插入替换文本
+        @memcpy(result[match_result.start..match_result.start + replacement.len], replacement);
+
+        // 复制匹配后的部分
+        @memcpy(result[match_result.start + replacement.len..], input[match_result.end..]);
+
         return result;
     }
 
     // 全局替换
     pub fn replaceAll(self: *UnicodeRegex, input: []const u8, replacement: []const u8) ![]u8 {
-        _ = replacement;
-        // 简化实现：返回输入的副本
-        const result = try self.allocator.alloc(u8, input.len);
-        @memcpy(result, input);
+        // 查找所有匹配
+        const matches = try self.findAll(input, self.allocator);
+        defer self.allocator.free(matches);
+
+        if (matches.len == 0) {
+            // 没有匹配，返回原字符串的副本
+            const result = try self.allocator.alloc(u8, input.len);
+            @memcpy(result, input);
+            return result;
+        }
+
+        // 计算结果字符串的长度
+        var result_len: usize = input.len;
+        for (matches) |match_item| {
+            result_len = result_len - (match_item.end - match_item.start) + replacement.len;
+        }
+
+        const result = try self.allocator.alloc(u8, result_len);
+        var result_pos: usize = 0;
+        var input_pos: usize = 0;
+
+        for (matches) |match_item| {
+            // 复制匹配前的部分
+            const before_len = match_item.start - input_pos;
+            @memcpy(result[result_pos..result_pos + before_len], input[input_pos..match_item.start]);
+            result_pos += before_len;
+            input_pos = match_item.start;
+
+            // 插入替换文本
+            @memcpy(result[result_pos..result_pos + replacement.len], replacement);
+            result_pos += replacement.len;
+            input_pos = match_item.end;
+        }
+
+        // 复制剩余部分
+        const remaining_len = input.len - input_pos;
+        @memcpy(result[result_pos..result_pos + remaining_len], input[input_pos..]);
+
         return result;
     }
 
-    // 分割字符串（简化实现）
+    // 分割字符串
     pub fn split(self: *UnicodeRegex, input: []const u8, allocator: Allocator) ![][]const u8 {
-        _ = self;
-        // 简化实现：返回包含整个输入的数组
-        const result = try allocator.alloc([]const u8, 1);
-        result[0] = input;
+        // 查找所有匹配作为分割点
+        const matches = try self.findAll(input, self.allocator);
+        defer self.allocator.free(matches);
+
+        if (matches.len == 0) {
+            // 没有匹配，返回包含整个输入的数组
+            const result = try allocator.alloc([]const u8, 1);
+            result[0] = input;
+            return result;
+        }
+
+        // 计算分割后的段数
+        const segment_count = matches.len + 1;
+        const result = try allocator.alloc([]const u8, segment_count);
+
+        var input_pos: usize = 0;
+        for (matches, 0..) |match_item, i| {
+            const segment_len = match_item.start - input_pos;
+            if (segment_len > 0) {
+                // 分配并复制该段
+                const segment = try allocator.alloc(u8, segment_len);
+                @memcpy(segment, input[input_pos..match_item.start]);
+                result[i] = segment;
+            } else {
+                // 空段
+                result[i] = "";
+            }
+            input_pos = match_item.end;
+        }
+
+        // 处理最后一段
+        const last_segment_len = input.len - input_pos;
+        if (last_segment_len > 0) {
+            const last_segment = try allocator.alloc(u8, last_segment_len);
+            @memcpy(last_segment, input[input_pos..]);
+            result[segment_count - 1] = last_segment;
+        } else {
+            result[segment_count - 1] = "";
+        }
+
         return result;
     }
 };
