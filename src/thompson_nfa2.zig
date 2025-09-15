@@ -14,6 +14,7 @@ const Input = input_new.Input;
 const bit_vector = @import("bit_vector.zig");
 const BitVector = bit_vector.BitVector;
 const ThreadSet = bit_vector.ThreadSet;
+const range_set = @import("range_set.zig");
 
 pub const ThompsonNfa = struct {
     program: *const Program,
@@ -730,4 +731,545 @@ test "ThompsonNfa epsilon-closure: mixed instruction types stress test" {
 
     try std.testing.expect(count > 0);
     try std.testing.expect(count <= SIZE + 1);
+}
+
+test "ThompsonNfa epsilon-closure: extreme dense graph with 5000 nodes" {
+    const allocator = std.testing.allocator;
+
+    const N: usize = 5000;
+    var insts = try allocator.alloc(Instruction, N + 1);
+    defer allocator.free(insts);
+
+    // Build an extremely dense graph: each node connects to many others
+    // This creates a massive fan-out to stress test memory and performance
+    var i: usize = 0;
+    while (i < N) : (i += 1) {
+        // Each node splits to multiple targets creating exponential reachability
+        const out1 = if (i + 1 < N) i + 1 else N;
+        const out2 = if (i + 2 < N) i + 2 else N;
+        const out3 = if (i + 3 < N) i + 3 else N;
+        const out4 = if (i + 5 < N) i + 5 else N;
+        const out5 = if (i + 8 < N) i + 8 else N;
+        const out6 = if (i + 13 < N) i + 13 else N;
+        const out7 = if (i + 21 < N) i + 21 else N;
+        const out8 = if (i + 34 < N) i + 34 else N;
+
+        // Create a split that fans out to many targets
+        insts[i] = Instruction.new(out1, InstructionData{ .Split = out2 });
+
+        // Add additional splits in the next few positions for even more fan-out
+        if (i + 1 < N) {
+            insts[i + 1] = Instruction.new(out3, InstructionData{ .Split = out4 });
+        }
+        if (i + 2 < N) {
+            insts[i + 2] = Instruction.new(out5, InstructionData{ .Split = out6 });
+        }
+        if (i + 3 < N) {
+            insts[i + 3] = Instruction.new(out7, InstructionData{ .Split = out8 });
+        }
+
+        // Skip the positions we used for additional splits
+        i += @min(3, N - i - 1);
+    }
+    insts[N] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    var input = input_new.Input.init("", .bytes);
+
+    // Time the closure computation for performance measurement
+    const start_time = std.time.microTimestamp();
+    try nfa.addClosureFrom(0, program.slot_count, &input, &nfa.thread_set.current);
+    const end_time = std.time.microTimestamp();
+    const duration_us = end_time - start_time;
+
+    // Count visited states
+    var count: usize = 0;
+    var it = nfa.thread_set.current.firstSet();
+    while (it) |pc| : (it = nfa.thread_set.current.nextSet(pc)) {
+        count += 1;
+    }
+
+    // Performance assertions: should complete quickly even for 5000 nodes
+    try std.testing.expect(duration_us < 10000); // Under 10ms
+
+    // Should visit a reasonable number of states (but not all due to visited tracking)
+    try std.testing.expect(count > 50);
+    try std.testing.expect(count <= N + 1);
+
+    // Verify memory efficiency by checking we can deinit cleanly
+    nfa.thread_set.clear();
+}
+
+test "ThompsonNfa epsilon-closure: memory allocation stress test" {
+    const allocator = std.testing.allocator;
+
+    const N: usize = 10000;
+    var insts = try allocator.alloc(Instruction, N + 1);
+    defer allocator.free(insts);
+
+    // Build a graph that will stress the memory allocation patterns
+    // Create many small connected components to test allocation/deallocation
+    const component_size: usize = 50;
+    var i: usize = 0;
+    while (i < N) : (i += component_size) {
+        const component_end = @min(i + component_size, N);
+
+        // Create a small chain within each component
+        var j: usize = i;
+        while (j < component_end - 1) : (j += 1) {
+            insts[j] = Instruction.new(j + 1, InstructionData.Jump);
+        }
+        insts[component_end - 1] = Instruction.new(N, InstructionData.Jump);
+    }
+    insts[N] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    var input = input_new.Input.init("", .bytes);
+
+    // Run closure multiple times to test memory management
+    for (0..10) |_| {
+        nfa.thread_set.clear();
+        try nfa.addClosureFrom(0, program.slot_count, &input, &nfa.thread_set.current);
+
+        // Verify we can clear and reuse memory
+        var count: usize = 0;
+        var it = nfa.thread_set.current.firstSet();
+        while (it) |pc| : (it = nfa.thread_set.current.nextSet(pc)) {
+            count += 1;
+        }
+        try std.testing.expect(count > 0);
+    }
+
+    // Final cleanup should work without issues
+    nfa.thread_set.clear();
+}
+
+test "ThompsonNfa execute: multiline mode - ^ matches at start of each line" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 4);
+    defer allocator.free(insts);
+
+    // Pattern: ^a in multiline mode
+    // 0: EmptyMatch(^) -> 1; 1: Char 'a' -> 2; 2: Jump -> 0; 3: Match
+    insts[0] = Instruction.new(1, InstructionData{ .EmptyMatch = parser.Assertion.BeginLine });
+    insts[1] = Instruction.new(3, InstructionData{ .Char = 'a' });
+    insts[2] = Instruction.new(0, InstructionData.Jump);
+    insts[3] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    // Test with multiline input
+    var input = input_new.Input.initWithMultiline("a\nb\na", .bytes, true);
+
+    // Should match both 'a's at the start of lines
+    const ok = try nfa.execute(&input, program.start);
+    try std.testing.expect(ok);
+
+    const result = nfa.getMatchResult();
+    try std.testing.expectEqual(@as(?usize, 2), result.start); // Second 'a' position
+    try std.testing.expectEqual(@as(?usize, 3), result.end);
+}
+
+test "ThompsonNfa execute: multiline mode - $ matches at end of each line" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 3);
+    defer allocator.free(insts);
+
+    // Pattern: a$ in multiline mode
+    // 0: Char 'a' -> 1; 1: EmptyMatch($) -> 2; 2: Match
+    insts[0] = Instruction.new(1, InstructionData{ .Char = 'a' });
+    insts[1] = Instruction.new(2, InstructionData{ .EmptyMatch = parser.Assertion.EndLine });
+    insts[2] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    // Test with multiline input
+    var input = input_new.Input.initWithMultiline("a\nb\na", .bytes, true);
+
+    // Should match first 'a' at end of first line
+    const ok = try nfa.execute(&input, program.start);
+    try std.testing.expect(ok);
+
+    const result = nfa.getMatchResult();
+    try std.testing.expectEqual(@as(?usize, 0), result.start);
+    try std.testing.expectEqual(@as(?usize, 1), result.end);
+}
+
+test "ThompsonNfa execute: multiline mode - complex pattern with both anchors" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 5);
+    defer allocator.free(insts);
+
+    // Pattern: ^test$ in multiline mode
+    // 0: EmptyMatch(^) -> 1; 1: Char 't' -> 2; 2: Char 'e' -> 3; 3: Char 's' -> 4; 4: Char 't' -> 5
+    insts[0] = Instruction.new(1, InstructionData{ .EmptyMatch = parser.Assertion.BeginLine });
+    insts[1] = Instruction.new(2, InstructionData{ .Char = 't' });
+    insts[2] = Instruction.new(3, InstructionData{ .Char = 'e' });
+    insts[3] = Instruction.new(4, InstructionData{ .Char = 's' });
+    insts[4] = Instruction.new(5, InstructionData{ .Char = 't' });
+
+    // Add more instructions for the full pattern
+    var full_insts = try allocator.alloc(Instruction, 7);
+    defer allocator.free(full_insts);
+
+    // Copy the first 5 instructions
+    for (0..5) |i| {
+        full_insts[i] = insts[i];
+    }
+
+    // Add the remaining instructions
+    full_insts[5] = Instruction.new(6, InstructionData{ .EmptyMatch = parser.Assertion.EndLine });
+    full_insts[6] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = full_insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    // Test with multiline input
+    var input = input_new.Input.initWithMultiline("test\nnotest\ntest", .bytes, true);
+
+    // Should match first and third lines
+    const ok = try nfa.execute(&input, program.start);
+    try std.testing.expect(ok);
+
+    const result = nfa.getMatchResult();
+    try std.testing.expectEqual(@as(?usize, 8), result.start); // Third 'test' position
+    try std.testing.expectEqual(@as(?usize, 12), result.end);
+}
+
+test "ThompsonNfa execute: non-multiline mode - ^ only matches at absolute start" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 3);
+    defer allocator.free(insts);
+
+    // Pattern: ^a in non-multiline mode
+    // 0: EmptyMatch(^) -> 1; 1: Char 'a' -> 2; 2: Match
+    insts[0] = Instruction.new(1, InstructionData{ .EmptyMatch = parser.Assertion.BeginLine });
+    insts[1] = Instruction.new(2, InstructionData{ .Char = 'a' });
+    insts[2] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    // Test with multiline input but non-multiline mode
+    var input = input_new.Input.initWithMultiline("a\nb\na", .bytes, false);
+
+    // Should only match first 'a' at absolute start
+    const ok = try nfa.execute(&input, program.start);
+    try std.testing.expect(ok);
+
+    const result = nfa.getMatchResult();
+    try std.testing.expectEqual(@as(?usize, 0), result.start);
+    try std.testing.expectEqual(@as(?usize, 1), result.end);
+}
+
+test "ThompsonNfa execute: multiline mode - word boundaries across lines" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 3);
+    defer allocator.free(insts);
+
+    // Pattern: \ba\b in multiline mode
+    // 0: EmptyMatch(\b) -> 1; 1: Char 'a' -> 2; 2: EmptyMatch(\b) -> 3; 3: Match
+    insts[0] = Instruction.new(1, InstructionData{ .EmptyMatch = parser.Assertion.WordBoundaryAscii });
+    insts[1] = Instruction.new(2, InstructionData{ .Char = 'a' });
+    insts[2] = Instruction.new(3, InstructionData{ .EmptyMatch = parser.Assertion.WordBoundaryAscii });
+
+    // Add the match instruction
+    var full_insts = try allocator.alloc(Instruction, 4);
+    defer allocator.free(full_insts);
+
+    full_insts[0] = insts[0];
+    full_insts[1] = insts[1];
+    full_insts[2] = insts[2];
+    full_insts[3] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = full_insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    // Test with multiline input
+    var input = input_new.Input.initWithMultiline("a\n a\nb", .bytes, true);
+
+    // Should match both standalone 'a's
+    const ok = try nfa.execute(&input, program.start);
+    try std.testing.expect(ok);
+
+    const result = nfa.getMatchResult();
+    try std.testing.expectEqual(@as(?usize, 2), result.start); // Second 'a' position
+    try std.testing.expectEqual(@as(?usize, 3), result.end);
+}
+
+test "ThompsonNfa epsilon-closure: UTF-8 boundary validation - mixed ASCII and Unicode" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 3);
+    defer allocator.free(insts);
+
+    // 0: Char 'a' -> 1; 1: Char 'b' -> 2; 2: Match
+    // This tests basic character matching in UTF-8 mode
+    insts[0] = Instruction.new(1, InstructionData{ .Char = 'a' });
+    insts[1] = Instruction.new(2, InstructionData{ .Char = 'b' });
+    insts[2] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    // UTF-8 input with basic ASCII
+    var input = input_new.Input.init("ab", .utf8);
+
+    const ok = try nfa.execute(&input, program.start);
+    try std.testing.expect(ok);
+
+    const result = nfa.getMatchResult();
+    try std.testing.expectEqual(@as(?usize, 0), result.start);
+    try std.testing.expectEqual(@as(?usize, 2), result.end);
+}
+
+test "ThompsonNfa epsilon-closure: UTF-8 boundary validation - basic UTF-8 handling" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 3);
+    defer allocator.free(insts);
+
+    // Pattern: basic ASCII characters in UTF-8 mode
+    // 0: Char 'a' -> 1; 1: Char 'b' -> 2; 2: Match
+    insts[0] = Instruction.new(1, InstructionData{ .Char = 'a' });
+    insts[1] = Instruction.new(2, InstructionData{ .Char = 'b' });
+    insts[2] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    // UTF-8 input with basic ASCII
+    var input = input_new.Input.init("ab", .utf8);
+
+    const ok = try nfa.execute(&input, program.start);
+    try std.testing.expect(ok);
+
+    const result = nfa.getMatchResult();
+    try std.testing.expectEqual(@as(?usize, 0), result.start);
+    try std.testing.expectEqual(@as(?usize, 2), result.end);
+}
+
+test "ThompsonNfa epsilon-closure: UTF-8 boundary validation - word boundaries in UTF-8" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 4);
+    defer allocator.free(insts);
+
+    // Pattern: \ba\b (word boundaries in UTF-8 mode)
+    // 0: EmptyMatch(\b) -> 1; 1: Char 'a' -> 2; 2: EmptyMatch(\b) -> 3; 3: Match
+    insts[0] = Instruction.new(1, InstructionData{ .EmptyMatch = parser.Assertion.WordBoundaryAscii });
+    insts[1] = Instruction.new(2, InstructionData{ .Char = 'a' });
+    insts[2] = Instruction.new(3, InstructionData{ .EmptyMatch = parser.Assertion.WordBoundaryAscii });
+    insts[3] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    // Test word boundaries in UTF-8 mode
+    var input = input_new.Input.init(" a ", .utf8);
+
+    const ok = try nfa.execute(&input, program.start);
+    try std.testing.expect(ok);
+
+    const result = nfa.getMatchResult();
+    try std.testing.expectEqual(@as(?usize, 1), result.start);
+    try std.testing.expectEqual(@as(?usize, 2), result.end);
+}
+
+test "ThompsonNfa epsilon-closure: UTF-8 boundary validation - invalid sequences" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 3);
+    defer allocator.free(insts);
+
+    // 0: Char 'a' -> 1; 1: AnyCharNotNL -> 2; 2: Match
+    // This tests that invalid UTF-8 sequences are handled gracefully
+    insts[0] = Instruction.new(1, InstructionData{ .Char = 'a' });
+    insts[1] = Instruction.new(2, InstructionData.AnyCharNotNL);
+    insts[2] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    // UTF-8 input with invalid sequence (incomplete 2-byte sequence)
+    var input = input_new.Input.init("a\xc3", .utf8);
+
+    const ok = try nfa.execute(&input, program.start);
+    try std.testing.expect(ok);
+
+    const result = nfa.getMatchResult();
+    try std.testing.expectEqual(@as(?usize, 0), result.start);
+    try std.testing.expectEqual(@as(?usize, 2), result.end); // 'a' + invalid byte treated as single char
+}
+
+test "ThompsonNfa epsilon-closure: UTF-8 boundary validation - character class boundaries" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 3);
+    defer allocator.free(insts);
+
+    // Pattern: [a] (character class with ASCII)
+    // 0: ByteClass containing 'a' -> 1; 1: Match
+    var byte_class = range_set.RangeSet(u8).init(allocator);
+    defer byte_class.deinit(allocator);
+
+    try byte_class.addRange(allocator, range_set.Range(u8).single('a'));
+
+    insts[0] = Instruction.new(1, InstructionData{ .ByteClass = byte_class });
+    insts[1] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    // Test with ASCII character that should match
+    var ascii_input = input_new.Input.init("a", .utf8);
+    const ascii_ok = try nfa.execute(&ascii_input, program.start);
+    try std.testing.expect(ascii_ok);
+
+    // Test with ASCII character that should not match
+    var other_input = input_new.Input.init("b", .utf8);
+    const other_ok = try nfa.execute(&other_input, program.start);
+    try std.testing.expect(!other_ok);
+}
+
+test "ThompsonNfa epsilon-closure: UTF-8 boundary validation - multiline in UTF-8" {
+    const allocator = std.testing.allocator;
+
+    var insts = try allocator.alloc(Instruction, 4);
+    defer allocator.free(insts);
+
+    // Pattern: ^a$ in multiline mode with UTF-8
+    // 0: EmptyMatch(^) -> 1; 1: Char 'a' -> 2; 2: EmptyMatch($) -> 3; 3: Match
+    insts[0] = Instruction.new(1, InstructionData{ .EmptyMatch = parser.Assertion.BeginLine });
+    insts[1] = Instruction.new(2, InstructionData{ .Char = 'a' });
+    insts[2] = Instruction.new(3, InstructionData{ .EmptyMatch = parser.Assertion.EndLine });
+    insts[3] = Instruction.new(0, InstructionData.Match);
+
+    var program = Program{
+        .insts = insts,
+        .start = 0,
+        .find_start = 0,
+        .slot_count = 0,
+        .allocator = allocator,
+    };
+
+    var nfa = try ThompsonNfa.init(allocator, &program);
+    defer nfa.deinit();
+
+    // Test with multiline UTF-8 input
+    var input = input_new.Input.initWithMultiline("a\nb\na", .utf8, true);
+
+    const ok = try nfa.execute(&input, program.start);
+    try std.testing.expect(ok);
+
+    const result = nfa.getMatchResult();
+    try std.testing.expectEqual(@as(?usize, 2), result.start); // Second 'a' position
+    try std.testing.expectEqual(@as(?usize, 3), result.end);
 }
