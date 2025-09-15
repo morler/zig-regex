@@ -5,4 +5,5 @@ test "all" {
     _ = @import("thompson_nfa2.zig");
     _ = @import("benchmark.zig");
     _ = @import("lazy_dfa_test.zig");
+    _ = @import("utf8_test.zig");
 }
