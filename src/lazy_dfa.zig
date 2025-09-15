@@ -607,14 +607,14 @@ pub const LazyDfa = struct {
                     return false;
                 }
             };
-            std.debug.print("DFA execute: char '{}' classified as {}\n", .{char, class_id});
-
             // 获取当前状态
+            if (state_id >= self.states.items.len) {
+                return false;
+            }
             const state = &self.states.items[state_id];
 
             // 检查是否已有转移
             if (state.getTransition(class_id)) |next_id| {
-                std.debug.print("DFA execute: found existing transition {} -> {}\n", .{state_id, next_id});
                 state_id = next_id;
                 current_pos += 1;
                 continue;
@@ -622,7 +622,6 @@ pub const LazyDfa = struct {
 
             // 需要计算新的转移
             const next_id = try self.computeTransition(state_id, class_id);
-            std.debug.print("DFA execute: computed new transition {} -> {} = {?}\n", .{state_id, class_id, next_id});
             if (next_id == null) {
                 return false;
             }
@@ -639,12 +638,13 @@ pub const LazyDfa = struct {
 
     // 计算状态转移
     fn computeTransition(self: *LazyDfa, state_id: StateId, class_id: ClassId) !?StateId {
-        std.debug.print("DFA computeTransition: state_id={}, class_id={}, current states.len={}\n", .{state_id, class_id, self.states.items.len});
+        if (state_id >= self.states.items.len) {
+            return null;
+        }
         const state = &self.states.items[state_id];
         self.scratch_space.transition_buffer.clear();
 
         // 对 NFA 状态集合中的每个状态计算字符转移
-        std.debug.print("DFA computeTransition: processing NFA states in state_id={}\n", .{state_id});
         for (state.nfa_states.getBits(), 0..) |bit_word, bit_index| {
             if (bit_word != 0) {
                 for (0..64) |bit_idx| {
@@ -730,7 +730,9 @@ pub const LazyDfa = struct {
         new_state.is_match = self.isMatchState(&new_state.nfa_states);
 
         try self.states.append(self.allocator, new_state);
-        try state.addTransition(self.allocator, class_id, new_state_id);
+        // 重新获取state指针，因为append可能重新分配了内存
+        const state_ptr = &self.states.items[state_id];
+        try state_ptr.addTransition(self.allocator, class_id, new_state_id);
 
         // 将新状态添加到缓存
         _ = self.cache.getOrCreateState(&self.scratch_space.merge_buffer, new_state_id) catch {};

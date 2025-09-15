@@ -22,7 +22,7 @@ pub fn exec(allocator: Allocator, prog: Program, prog_start: usize, input: *Inpu
     while (i < slots.items.len) : (i += 1) {
         slots.items[i] = null;
     }
-    nfa.setSlots(&slots.*);
+    nfa.setSlots(slots);
 
     // 执行匹配
     const matched = try nfa.execute(input, prog_start);
@@ -33,23 +33,41 @@ pub fn exec(allocator: Allocator, prog: Program, prog_start: usize, input: *Inpu
         // Ensure at least 2 slots for whole-match bounds
         if (slots.items.len < 2) try slots.resize(allocator, 2);
 
-        // 直接使用 Thompson NFA 提供的匹配结果
-        // 但确保开始位置不大于结束位置
-        if (match_result.start) |start| {
-            if (match_result.end) |end| {
-                if (start <= end) {
-                    slots.items[0] = start;
-                    slots.items[1] = end;
+        // 如果slot 0和1没有被正确设置，尝试从捕获组或match_result推导
+        if (slots.items[0] == null or slots.items[1] == null) {
+            // 没有捕获组或slot未设置，使用match_result
+            // 直接使用 Thompson NFA 提供的匹配结果
+            // 但确保开始位置不大于结束位置
+            if (match_result.start) |start| {
+                if (match_result.end) |end| {
+                    if (start <= end) {
+                        slots.items[0] = start;
+                        slots.items[1] = end;
+                    } else {
+                        // 如果开始位置大于结束位置，使用结束位置作为开始位置
+                        slots.items[0] = end;
+                        slots.items[1] = end;
+                    }
                 } else {
-                    // 如果开始位置大于结束位置，使用结束位置作为开始位置
-                    slots.items[0] = end;
-                    slots.items[1] = end;
+                    slots.items[0] = start;
                 }
-            } else {
-                slots.items[0] = start;
+            } else if (match_result.end) |end| {
+                slots.items[1] = end;
             }
-        } else if (match_result.end) |end| {
-            slots.items[1] = end;
+        }
+
+        // 验证所有捕获组的边界，确保开始位置不大于结束位置
+        var capture_idx: usize = 0;
+        while (capture_idx + 1 < slots.items.len) : (capture_idx += 2) {
+            if (slots.items[capture_idx]) |start| {
+                if (slots.items[capture_idx + 1]) |end| {
+                    if (start > end) {
+                        // 如果捕获组边界无效，清除这个捕获组
+                        slots.items[capture_idx] = null;
+                        slots.items[capture_idx + 1] = null;
+                    }
+                }
+            }
         }
     }
 
