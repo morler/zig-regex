@@ -2,6 +2,8 @@
 // 提供高效的UTF-8解码和编码功能
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 // UTF-8解码结果
 pub const DecodeResult = struct {
@@ -281,34 +283,386 @@ pub const Utf8Iterator = struct {
     }
 };
 
-// Unicode字符分类器
+// Unicode通用类别
+pub const UnicodeGeneralCategory = enum(u8) {
+    // 字母类别
+    Lu = 0, // 大写字母 (Letter, uppercase)
+    Ll = 1, // 小写字母 (Letter, lowercase)
+    Lt = 2, // 词首字母大写 (Letter, titlecase)
+    Lm = 3, // 修饰字母 (Letter, modifier)
+    Lo = 4, // 其他字母 (Letter, other)
+
+    // 标记类别
+    Mn = 5, // 非间距标记 (Mark, nonspacing)
+    Mc = 6, // 间距组合标记 (Mark, spacing combining)
+    Me = 7, // 封闭标记 (Mark, enclosing)
+
+    // 数字类别
+    Nd = 8, // 十进制数字 (Number, decimal digit)
+    Nl = 9, // 字母数字 (Number, letter)
+    No = 10, // 其他数字 (Number, other)
+
+    // 标点符号类别
+    Pc = 11, // 连接符标点 (Punctuation, connector)
+    Pd = 12, // 破折号标点 (Punctuation, dash)
+    Ps = 13, // 开始标点 (Punctuation, open)
+    Pe = 14, // 结束标点 (Punctuation, close)
+    Pi = 15, // 初始标点 (Punctuation, initial quote)
+    Pf = 16, // 最终标点 (Punctuation, final quote)
+    Po = 17, // 其他标点 (Punctuation, other)
+
+    // 符号类别
+    Sm = 18, // 数学符号 (Symbol, math)
+    Sc = 19, // 货币符号 (Symbol, currency)
+    Sk = 20, // 修饰符号 (Symbol, modifier)
+    So = 21, // 其他符号 (Symbol, other)
+
+    // 分隔符类别
+    Zs = 22, // 空格分隔符 (Separator, space)
+    Zl = 23, // 行分隔符 (Separator, line)
+    Zp = 24, // 段落分隔符 (Separator, paragraph)
+
+    // 其他类别
+    Cc = 25, // 控制字符 (Other, control)
+    Cf = 26, // 格式字符 (Other, format)
+    Cs = 27, // 代理字符 (Other, surrogate)
+    Co = 28, // 私有使用字符 (Other, private use)
+    Cn = 29, // 未分配字符 (Other, not assigned)
+};
+
+// Unicode字符类数据结构
+pub const UnicodeCharClass = struct {
+    allocator: std.mem.Allocator,
+    ranges: ArrayListUnmanaged(UnicodeRange),
+
+    // Unicode范围表示
+    const UnicodeRange = struct {
+        start: u21,
+        end: u21,
+        category: UnicodeGeneralCategory,
+    };
+
+    // 初始化字符类
+    pub fn init(allocator: std.mem.Allocator) UnicodeCharClass {
+        return UnicodeCharClass{
+            .allocator = allocator,
+            .ranges = ArrayListUnmanaged(UnicodeRange).empty,
+        };
+    }
+
+    // 释放字符类资源
+    pub fn deinit(self: *UnicodeCharClass) void {
+        self.ranges.deinit(self.allocator);
+    }
+
+    // 添加范围到字符类
+    pub fn addRange(self: *UnicodeCharClass, start: u21, end: u21, category: UnicodeGeneralCategory) !void {
+        try self.ranges.append(self.allocator, UnicodeRange{
+            .start = start,
+            .end = end,
+            .category = category,
+        });
+    }
+
+    // 检查字符是否属于字符类
+    pub fn contains(self: *const UnicodeCharClass, codepoint: u21) bool {
+        for (self.ranges.items) |range| {
+            if (codepoint >= range.start and codepoint <= range.end) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // 获取字符的通用类别
+    pub fn getCategory(codepoint: u21) UnicodeGeneralCategory {
+        return getUnicodeCategory(codepoint);
+    }
+
+    // 字符类操作：并集
+    pub fn setUnion(self: *const UnicodeCharClass, other: *const UnicodeCharClass, result: *UnicodeCharClass) !void {
+        // 添加当前字符类的所有范围
+        for (self.ranges.items) |range| {
+            try result.addRange(range.start, range.end, range.category);
+        }
+        // 添加其他字符类的所有范围
+        for (other.ranges.items) |range| {
+            try result.addRange(range.start, range.end, range.category);
+        }
+    }
+
+    // 字符类操作：交集
+    pub fn intersection(self: *const UnicodeCharClass, other: *const UnicodeCharClass, result: *UnicodeCharClass) !void {
+        for (self.ranges.items) |range1| {
+            for (other.ranges.items) |range2| {
+                const overlap_start = @max(range1.start, range2.start);
+                const overlap_end = @min(range1.end, range2.end);
+                if (overlap_start <= overlap_end) {
+                    try result.addRange(overlap_start, overlap_end, range1.category);
+                }
+            }
+        }
+    }
+
+    // 字符类操作：差集
+    pub fn difference(self: *const UnicodeCharClass, other: *const UnicodeCharClass, result: *UnicodeCharClass) !void {
+        for (self.ranges.items) |range1| {
+            var current_start = range1.start;
+            while (current_start <= range1.end) {
+                var in_other = false;
+                var min_end = range1.end;
+
+                // 检查当前字符是否在其他字符类中
+                for (other.ranges.items) |range2| {
+                    if (current_start >= range2.start and current_start <= range2.end) {
+                        in_other = true;
+                        min_end = @min(min_end, range2.end);
+                        break;
+                    }
+                }
+
+                if (!in_other) {
+                    // 找到下一个在其他字符类中的位置
+                    var next_other_start = range1.end + 1;
+                    for (other.ranges.items) |range2| {
+                        if (range2.start > current_start and range2.start <= next_other_start) {
+                            next_other_start = range2.start;
+                        }
+                    }
+
+                    if (next_other_start > current_start) {
+                        const segment_end = @min(next_other_start - 1, range1.end);
+                        try result.addRange(current_start, segment_end, range1.category);
+                        current_start = next_other_start;
+                    } else {
+                        current_start += 1;
+                    }
+                } else {
+                    current_start = min_end + 1;
+                }
+            }
+        }
+    }
+
+    // 字符类操作：取反
+    pub fn negate(self: *const UnicodeCharClass, result: *UnicodeCharClass) !void {
+        var current_start: u21 = 0;
+        const max_unicode: u21 = 0x10FFFF;
+
+        for (self.ranges.items) |range| {
+            if (current_start < range.start) {
+                try result.addRange(current_start, range.start - 1, .Cn);
+            }
+            current_start = range.end + 1;
+        }
+
+        if (current_start <= max_unicode) {
+            try result.addRange(current_start, max_unicode, .Cn);
+        }
+    }
+
+    // 优化范围：合并相邻或重叠的范围
+    pub fn optimize(self: *UnicodeCharClass) !void {
+        if (self.ranges.items.len < 2) return;
+
+        // 简单的冒泡排序按起始位置排序
+        for (0..self.ranges.items.len - 1) |i| {
+            for (0..self.ranges.items.len - i - 1) |j| {
+                if (self.ranges.items[j].start > self.ranges.items[j + 1].start) {
+                    const temp = self.ranges.items[j];
+                    self.ranges.items[j] = self.ranges.items[j + 1];
+                    self.ranges.items[j + 1] = temp;
+                }
+            }
+        }
+
+        // 合并相邻或重叠的范围
+        var i: usize = 0;
+        while (i < self.ranges.items.len - 1) {
+            const current = self.ranges.items[i];
+            const next = self.ranges.items[i + 1];
+
+            if (current.end + 1 >= next.start and current.category == next.category) {
+                // 合并范围
+                self.ranges.items[i].end = @max(current.end, next.end);
+                _ = self.ranges.orderedRemove(i + 1);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    // 序列化字符类
+    pub fn serialize(self: *const UnicodeCharClass, writer: anytype) !void {
+        try writer.writeInt(u32, @intCast(self.ranges.items.len), .big);
+        for (self.ranges.items) |range| {
+            try writer.writeInt(u24, range.start, .big);
+            try writer.writeInt(u24, range.end, .big);
+            try writer.writeByte(@intFromEnum(range.category));
+        }
+    }
+
+    // 反序列化字符类
+    pub fn deserialize(self: *UnicodeCharClass, reader: anytype) !void {
+        self.ranges.clearRetainingCapacity();
+
+        const count = try reader.readInt(u32, .big);
+        for (0..count) |_| {
+            const start = try reader.readInt(u24, .big);
+            const end = try reader.readInt(u24, .big);
+            const category_byte = try reader.readByte();
+            const category = @as(UnicodeGeneralCategory, @enumFromInt(category_byte));
+
+            // 验证范围在u21范围内
+            if (start > 0x10FFFF or end > 0x10FFFF or start > end) {
+                return error.InvalidRange;
+            }
+
+            try self.addRange(@as(u21, @intCast(start)), @as(u21, @intCast(end)), category);
+        }
+    }
+};
+
+// 预定义的Unicode字符类
+pub const UnicodeClasses = struct {
+    // 获取字母字符类
+    pub fn letters(allocator: std.mem.Allocator) !UnicodeCharClass {
+        var class = UnicodeCharClass.init(allocator);
+
+        // ASCII字母
+        try class.addRange('A', 'Z', .Lu);
+        try class.addRange('a', 'z', .Ll);
+
+        // 拉丁扩展
+        try class.addRange(0x00C0, 0x00D6, .Lu); // À-Ö
+        try class.addRange(0x00D8, 0x00F6, .Lu); // Ø-ö
+        try class.addRange(0x00F8, 0x00FF, .Ll); // ø-ÿ
+        try class.addRange(0x0100, 0x017F, .Lu); // 拉丁扩展A
+
+        // 希腊字母
+        try class.addRange(0x0391, 0x03A9, .Lu); // Α-Ω
+        try class.addRange(0x03B1, 0x03C9, .Ll); // α-ω
+
+        // 西里尔字母
+        try class.addRange(0x0410, 0x042F, .Lu); // А-Я
+        try class.addRange(0x0430, 0x044F, .Ll); // а-я
+
+        // CJK统一表意文字
+        try class.addRange(0x4E00, 0x9FFF, .Lo);
+
+        // 平假名
+        try class.addRange(0x3040, 0x309F, .Lo);
+
+        // 片假名
+        try class.addRange(0x30A0, 0x30FF, .Lo);
+
+        // 韩文字母
+        try class.addRange(0xAC00, 0xD7AF, .Lo);
+
+        return class;
+    }
+
+    // 获取数字字符类
+    pub fn digits(allocator: std.mem.Allocator) !UnicodeCharClass {
+        var class = UnicodeCharClass.init(allocator);
+
+        // ASCII数字
+        try class.addRange('0', '9', .Nd);
+
+        // 阿拉伯-印度数字
+        try class.addRange(0x0660, 0x0669, .Nd);
+
+        // 波斯数字
+        try class.addRange(0x06F0, 0x06F9, .Nd);
+
+        // 天城文数字
+        try class.addRange(0x0966, 0x096F, .Nd);
+
+        // 全角数字
+        try class.addRange(0xFF10, 0xFF19, .Nd);
+
+        return class;
+    }
+
+    // 获取空白字符类
+    pub fn whitespace(allocator: std.mem.Allocator) !UnicodeCharClass {
+        var class = UnicodeCharClass.init(allocator);
+
+        // ASCII空白字符
+        try class.addRange(0x0009, 0x0009, .Cc); // \t
+        try class.addRange(0x000A, 0x000A, .Cc); // \n
+        try class.addRange(0x000B, 0x000B, .Cc); // \v
+        try class.addRange(0x000C, 0x000C, .Cc); // \f
+        try class.addRange(0x000D, 0x000D, .Cc); // \r
+        try class.addRange(0x0020, 0x0020, .Zs); // space
+
+        // Unicode空白字符
+        try class.addRange(0x00A0, 0x00A0, .Zs); // 不换行空格
+        try class.addRange(0x1680, 0x1680, .Zs); // 奥格姆空格
+        try class.addRange(0x2000, 0x200A, .Zs); // 各种宽度空格
+        try class.addRange(0x2028, 0x2028, .Zl); // 行分隔符
+        try class.addRange(0x2029, 0x2029, .Zp); // 段落分隔符
+        try class.addRange(0x202F, 0x202F, .Zs); // 窄不换行空格
+        try class.addRange(0x205F, 0x205F, .Zs); // 中学数学空格
+        try class.addRange(0x3000, 0x3000, .Zs); // 表意文字空格
+
+        return class;
+    }
+
+    // 获取单词字符类
+    pub fn wordChars(allocator: std.mem.Allocator) !UnicodeCharClass {
+        var class = try letters(allocator);
+        var digits_class = try digits(allocator);
+        var underscore_class = UnicodeCharClass.init(allocator);
+        try underscore_class.addRange('_', '_', .Pc);
+
+        // 合并字母、数字和下划线
+        var result = UnicodeCharClass.init(allocator);
+        try class.setUnion(&digits_class, &result);
+        try result.setUnion(&underscore_class, &result);
+
+        // 清理临时对象
+        class.deinit();
+        digits_class.deinit();
+        underscore_class.deinit();
+
+        return result;
+    }
+
+    // 获取标点符号字符类
+    pub fn punctuation(allocator: std.mem.Allocator) !UnicodeCharClass {
+        var class = UnicodeCharClass.init(allocator);
+
+        // ASCII标点符号
+        try class.addRange(0x0021, 0x002F, .Po); // ! " # $ % & ' ( ) * + , - . /
+        try class.addRange(0x003A, 0x0040, .Po); // : ; < = > ? @
+        try class.addRange(0x005B, 0x0060, .Po); // [ \ ] ^ _ `
+        try class.addRange(0x007B, 0x007E, .Po); // { | } ~
+
+        // Unicode标点符号范围
+        try class.addRange(0x2000, 0x206F, .Po); // 通用标点
+        try class.addRange(0x3000, 0x303F, .Po); // CJK标点和符号
+        try class.addRange(0xFF00, 0xFFEF, .Po); // 半角和全角形式
+
+        return class;
+    }
+};
+
+// Unicode字符分类器（向后兼容）
 pub const UnicodeClassifier = struct {
     // 检查字符是否为字母
     pub fn isLetter(codepoint: u21) bool {
-        // ASCII字母
-        if (codepoint <= 0x7F) {
-            return switch (codepoint) {
-                'a'...'z', 'A'...'Z' => true,
-                else => false,
-            };
-        }
-
-        // Unicode字母类别（简化版本）
-        return isUnicodeLetter(codepoint);
+        const category = getUnicodeCategory(codepoint);
+        return switch (category) {
+            .Lu, .Ll, .Lt, .Lm, .Lo => true,
+            else => false,
+        };
     }
 
     // 检查字符是否为数字
     pub fn isDigit(codepoint: u21) bool {
-        // ASCII数字
-        if (codepoint <= 0x7F) {
-            return switch (codepoint) {
-                '0'...'9' => true,
-                else => false,
-            };
-        }
-
-        // Unicode数字类别（简化版本）
-        return isUnicodeDigit(codepoint);
+        const category = getUnicodeCategory(codepoint);
+        return category == .Nd or category == .Nl or category == .No;
     }
 
     // 检查字符是否为单词字符
@@ -318,87 +672,113 @@ pub const UnicodeClassifier = struct {
 
     // 检查字符是否为空白字符
     pub fn isWhitespace(codepoint: u21) bool {
-        // ASCII空白字符
-        if (codepoint <= 0x7F) {
-            return switch (codepoint) {
-                ' ', '\t', '\n', '\r', 0x0C, 0x0B => true, // \f and \v as hex values
+        const category = getUnicodeCategory(codepoint);
+        return switch (category) {
+            .Zs, .Zl, .Zp => true,
+            .Cc => switch (codepoint) {
+                0x0009, 0x000A, 0x000B, 0x000C, 0x000D => true, // \t, \n, \v, \f, \r
                 else => false,
-            };
-        }
-
-        // Unicode空白字符（简化版本）
-        return isUnicodeWhitespace(codepoint);
-    }
-
-    // 检查字符是否为标点符号
-    pub fn isPunctuation(codepoint: u21) bool {
-        // ASCII标点
-        if (codepoint <= 0x7F) {
-            return switch (codepoint) {
-                '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/',
-                ':', ';', '<', '=', '>', '?', '@', '[', '\\', ']', '^', '_', '`', '{', '|', '}', '~' => true,
-                else => false,
-            };
-        }
-
-        // Unicode标点（简化版本）
-        return isUnicodePunctuation(codepoint);
-    }
-
-    // 简化的Unicode字母检测
-    fn isUnicodeLetter(codepoint: u21) bool {
-        // 主要的Unicode字母范围（不完整，实际应使用Unicode数据库）
-        return (codepoint >= 0x00AA and codepoint <= 0x00AA) or // ª
-            (codepoint >= 0x00B5 and codepoint <= 0x00B5) or // µ
-            (codepoint >= 0x00BA and codepoint <= 0x00BA) or // º
-            (codepoint >= 0x00C0 and codepoint <= 0x00D6) or // À-Ö
-            (codepoint >= 0x00D8 and codepoint <= 0x00F6) or // Ø-ö
-            (codepoint >= 0x00F8 and codepoint <= 0x00FF) or // ø-ÿ
-            (codepoint >= 0x0100 and codepoint <= 0x017F) or // 拉丁扩展A
-            (codepoint >= 0x0180 and codepoint <= 0x024F) or // 拉丁扩展B
-            (codepoint >= 0x0370 and codepoint <= 0x03FF) or // 希腊和科普特
-            (codepoint >= 0x0400 and codepoint <= 0x04FF) or // 西里尔
-            (codepoint >= 0x0530 and codepoint <= 0x058F) or // 亚美尼亚
-            (codepoint >= 0x0590 and codepoint <= 0x05FF) or // 希伯来
-            (codepoint >= 0x0600 and codepoint <= 0x06FF) or // 阿拉伯
-            (codepoint >= 0x0900 and codepoint <= 0x097F) or // 天城文
-            (codepoint >= 0x4E00 and codepoint <= 0x9FFF);   // CJK统一表意文字
-    }
-
-    // 简化的Unicode数字检测
-    fn isUnicodeDigit(codepoint: u21) bool {
-        // 主要的Unicode数字范围（不完整）
-        return (codepoint >= 0x0660 and codepoint <= 0x0669) or // 阿拉伯-印度数字
-            (codepoint >= 0x06F0 and codepoint <= 0x06F9) or // 波斯数字
-            (codepoint >= 0x0966 and codepoint <= 0x096F) or // 天城文数字
-            (codepoint >= 0xFF10 and codepoint <= 0xFF19);   // 全角数字
-    }
-
-    // 简化的Unicode空白检测
-    fn isUnicodeWhitespace(codepoint: u21) bool {
-        // 常见的Unicode空白字符
-        return switch (codepoint) {
-            0x00A0, // 不换行空格
-            0x1680, // 奥格姆空格
-            0x2000...0x200A, // 各种宽度空格
-            0x2028, // 行分隔符
-            0x2029, // 段落分隔符
-            0x202F, // 窄不换行空格
-            0x205F, // 中学数学空格
-            0x3000, // 表意文字空格
-            => true,
+            },
             else => false,
         };
     }
 
-    // 简化的Unicode标点检测
-    fn isUnicodePunctuation(codepoint: u21) bool {
-        // 常见的Unicode标点范围
-        return (codepoint >= 0x2000 and codepoint <= 0x206F) or // 通用标点
-            (codepoint >= 0x3000 and codepoint <= 0x303F) or // CJK标点和符号
-            (codepoint >= 0xFF00 and codepoint <= 0xFFEF);   // 半角和全角形式
+    // 检查字符是否为标点符号
+    pub fn isPunctuation(codepoint: u21) bool {
+        const category = getUnicodeCategory(codepoint);
+        return switch (category) {
+            .Pc, .Pd, .Ps, .Pe, .Pi, .Pf, .Po => true,
+            else => false,
+        };
+    }
+
+    // 获取字符的通用类别
+    pub fn getCategory(codepoint: u21) UnicodeGeneralCategory {
+        return getUnicodeCategory(codepoint);
     }
 };
+
+// 获取Unicode字符的通用类别（内部实现）
+fn getUnicodeCategory(codepoint: u21) UnicodeGeneralCategory {
+    // ASCII字符的快速路径
+    if (codepoint <= 0x7F) {
+        return switch (codepoint) {
+            'A'...'Z' => .Lu,
+            'a'...'z' => .Ll,
+            '0'...'9' => .Nd,
+            ' ' => .Zs,
+            '\t', '\n', 0x0B, 0x0C, '\r' => .Cc,
+            '!'...'/', ':'...'@', '['...'\\', '^', '`', '{'...'~' => .Po,
+            '_' => .Pc,
+            else => .Cn,
+        };
+    }
+
+    // Unicode字符类别的简化实现
+    // 实际项目中应该使用完整的Unicode数据库
+    return getUnicodeCategoryFallback(codepoint);
+}
+
+// Unicode类别回退实现（简化版本）
+fn getUnicodeCategoryFallback(codepoint: u21) UnicodeGeneralCategory {
+    // 主要Unicode块和类别
+    if (codepoint >= 0x0080 and codepoint <= 0x00FF) {
+        // Latin-1补充
+        return switch (codepoint) {
+            0x00AA, 0x00B5, 0x00BA => .Ll,
+            0x00C0...0x00D6, 0x00D8...0x00F6, 0x00F8...0x00FF => .Lu,
+            0x00A0 => .Zs,
+            else => .Cn,
+        };
+    }
+
+    if (codepoint >= 0x0100 and codepoint <= 0x017F) return .Lu; // 拉丁扩展A
+    if (codepoint >= 0x0180 and codepoint <= 0x024F) return .Lu; // 拉丁扩展B
+    if (codepoint >= 0x0370 and codepoint <= 0x03FF) return .Lu; // 希腊和科普特
+    if (codepoint >= 0x0400 and codepoint <= 0x04FF) return .Lu; // 西里尔
+    if (codepoint >= 0x0530 and codepoint <= 0x058F) return .Lu; // 亚美尼亚
+    if (codepoint >= 0x0590 and codepoint <= 0x05FF) return .Lo; // 希伯来
+
+    // 数字（需要在阿拉伯文之前，避免覆盖阿拉伯数字）
+    if (codepoint >= 0x0660 and codepoint <= 0x0669) return .Nd; // 阿拉伯-印度数字
+    if (codepoint >= 0x06F0 and codepoint <= 0x06F9) return .Nd; // 波斯数字
+
+    // 阿拉伯文（排除数字范围）
+    if ((codepoint >= 0x0600 and codepoint <= 0x065F) or (codepoint >= 0x066A and codepoint <= 0x06EF) or (codepoint >= 0x06FA and codepoint <= 0x06FF)) return .Lo;
+
+    if (codepoint >= 0x0900 and codepoint <= 0x097F) return .Lo; // 天城文
+
+    // CJK统一表意文字
+    if (codepoint >= 0x4E00 and codepoint <= 0x9FFF) return .Lo;
+
+    // 平假名
+    if (codepoint >= 0x3040 and codepoint <= 0x309F) return .Lo;
+
+    // 片假名
+    if (codepoint >= 0x30A0 and codepoint <= 0x30FF) return .Lo;
+
+    // 韩文字母
+    if (codepoint >= 0xAC00 and codepoint <= 0xD7AF) return .Lo;
+
+    // 数字
+    if (codepoint >= 0x0966 and codepoint <= 0x096F) return .Nd; // 天城文数字
+    if (codepoint >= 0xFF10 and codepoint <= 0xFF19) return .Nd; // 全角数字
+
+    // 标点符号和符号
+    if (codepoint >= 0x2000 and codepoint <= 0x206F) return .Po; // 通用标点
+    if (codepoint >= 0x3001 and codepoint <= 0x303F) return .Po; // CJK标点和符号（排除表意空格）
+    if (codepoint >= 0xFF00 and codepoint <= 0xFFEF) return .Po; // 半角和全角形式
+
+    // 空白字符
+    if (codepoint == 0x00A0 or codepoint == 0x1680 or
+        (codepoint >= 0x2000 and codepoint <= 0x200A) or
+        codepoint == 0x2028 or codepoint == 0x2029 or
+        codepoint == 0x202F or codepoint == 0x205F or
+        codepoint == 0x3000) return .Zs;
+
+    // 默认返回未分配
+    return .Cn;
+}
 
 // UTF-8边界检测器
 pub const Utf8Boundary = struct {

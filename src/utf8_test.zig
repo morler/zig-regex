@@ -2,6 +2,8 @@
 
 const std = @import("std");
 const testing = std.testing;
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 const utf8 = @import("utf8.zig");
 
 test "Utf8Decoder - decode ASCII characters" {
@@ -297,6 +299,184 @@ test "UnicodeClassifier - Unicode character classification" {
     // Unicode whitespace
     try testing.expect(utf8.UnicodeClassifier.isWhitespace(0x00A0)); // Non-breaking space
     try testing.expect(utf8.UnicodeClassifier.isWhitespace(0x3000)); // Ideographic space
+}
+
+test "UnicodeGeneralCategory - ASCII character categories" {
+    try testing.expectEqual(utf8.UnicodeGeneralCategory.Lu, utf8.UnicodeClassifier.getCategory('A'));
+    try testing.expectEqual(utf8.UnicodeGeneralCategory.Ll, utf8.UnicodeClassifier.getCategory('a'));
+    try testing.expectEqual(utf8.UnicodeGeneralCategory.Nd, utf8.UnicodeClassifier.getCategory('0'));
+    try testing.expectEqual(utf8.UnicodeGeneralCategory.Zs, utf8.UnicodeClassifier.getCategory(' '));
+    try testing.expectEqual(utf8.UnicodeGeneralCategory.Pc, utf8.UnicodeClassifier.getCategory('_'));
+    try testing.expectEqual(utf8.UnicodeGeneralCategory.Po, utf8.UnicodeClassifier.getCategory('!'));
+    try testing.expectEqual(utf8.UnicodeGeneralCategory.Cc, utf8.UnicodeClassifier.getCategory('\n'));
+}
+
+test "UnicodeCharClass - basic operations" {
+    const allocator = testing.allocator;
+
+    var letters = try utf8.UnicodeClasses.letters(allocator);
+    defer letters.deinit();
+
+    var digits = try utf8.UnicodeClasses.digits(allocator);
+    defer digits.deinit();
+
+    // Test basic contains
+    try testing.expect(letters.contains('A'));
+    try testing.expect(letters.contains('a'));
+    try testing.expect(letters.contains(0x4E2D)); // 中
+    try testing.expect(!letters.contains('0'));
+
+    try testing.expect(digits.contains('0'));
+    try testing.expect(digits.contains('9'));
+    try testing.expect(digits.contains(0x0660)); // Arabic-Indic digit
+    try testing.expect(!digits.contains('A'));
+}
+
+test "UnicodeCharClass - set operations" {
+    const allocator = testing.allocator;
+
+    var letters = try utf8.UnicodeClasses.letters(allocator);
+    defer letters.deinit();
+
+    var digits = try utf8.UnicodeClasses.digits(allocator);
+    defer digits.deinit();
+
+    // Test union operation
+    var union_result = utf8.UnicodeCharClass.init(allocator);
+    defer union_result.deinit();
+    try letters.setUnion(&digits, &union_result);
+
+    try testing.expect(union_result.contains('A'));
+    try testing.expect(union_result.contains('0'));
+
+    // Test intersection operation
+    var intersection_result = utf8.UnicodeCharClass.init(allocator);
+    defer intersection_result.deinit();
+    try letters.intersection(&digits, &intersection_result);
+
+    // Letters and digits should not intersect
+    try testing.expect(!intersection_result.contains('A'));
+    try testing.expect(!intersection_result.contains('0'));
+}
+
+test "UnicodeCharClass - word characters" {
+    const allocator = testing.allocator;
+
+    var word_chars = try utf8.UnicodeClasses.wordChars(allocator);
+    defer word_chars.deinit();
+
+    // Test word character detection
+    try testing.expect(word_chars.contains('A'));
+    try testing.expect(word_chars.contains('a'));
+    try testing.expect(word_chars.contains('0'));
+    try testing.expect(word_chars.contains('_'));
+    try testing.expect(word_chars.contains(0x4E2D)); // 中
+    try testing.expect(!word_chars.contains(' '));
+    try testing.expect(!word_chars.contains('!'));
+}
+
+test "UnicodeCharClass - whitespace" {
+    const allocator = testing.allocator;
+
+    var whitespace = try utf8.UnicodeClasses.whitespace(allocator);
+    defer whitespace.deinit();
+
+    // Test whitespace character detection
+    try testing.expect(whitespace.contains(' '));
+    try testing.expect(whitespace.contains('\t'));
+    try testing.expect(whitespace.contains('\n'));
+    try testing.expect(whitespace.contains(0x00A0)); // Non-breaking space
+    try testing.expect(whitespace.contains(0x3000)); // Ideographic space
+    try testing.expect(!whitespace.contains('A'));
+    try testing.expect(!whitespace.contains('0'));
+}
+
+test "UnicodeCharClass - punctuation" {
+    const allocator = testing.allocator;
+
+    var punctuation = try utf8.UnicodeClasses.punctuation(allocator);
+    defer punctuation.deinit();
+
+    // Test punctuation character detection
+    try testing.expect(punctuation.contains('!'));
+    try testing.expect(punctuation.contains(','));
+    try testing.expect(punctuation.contains('.'));
+    try testing.expect(punctuation.contains('?'));
+    try testing.expect(punctuation.contains(0x3001)); // CJK comma
+    try testing.expect(!punctuation.contains('A'));
+    try testing.expect(!punctuation.contains(' '));
+}
+
+test "UnicodeCharClass - optimization" {
+    const allocator = testing.allocator;
+
+    var class = utf8.UnicodeCharClass.init(allocator);
+    defer class.deinit();
+
+    // Add overlapping ranges
+    try class.addRange('A', 'Z', .Lu);
+    try class.addRange('M', 'P', .Lu); // Overlaps with previous range
+    try class.addRange('a', 'z', .Ll);
+
+    try testing.expectEqual(@as(usize, 3), class.ranges.items.len);
+
+    // Optimize should merge overlapping ranges
+    try class.optimize();
+
+    try testing.expect(class.ranges.items.len <= 3);
+
+    // Verify the merged ranges still contain expected characters
+    try testing.expect(class.contains('A'));
+    try testing.expect(class.contains('Z'));
+    try testing.expect(class.contains('a'));
+    try testing.expect(class.contains('z'));
+}
+
+test "UnicodeCharClass - negation" {
+    const allocator = testing.allocator;
+
+    var letters = try utf8.UnicodeClasses.letters(allocator);
+    defer letters.deinit();
+
+    var negated = utf8.UnicodeCharClass.init(allocator);
+    defer negated.deinit();
+
+    try letters.negate(&negated);
+
+    // Negated letters should contain non-letter characters
+    try testing.expect(negated.contains('0'));
+    try testing.expect(negated.contains(' '));
+    try testing.expect(negated.contains('!'));
+    try testing.expect(!negated.contains('A'));
+    try testing.expect(!negated.contains('a'));
+}
+
+test "UnicodeCharClass - serialization" {
+    const allocator = testing.allocator;
+
+    var original = try utf8.UnicodeClasses.letters(allocator);
+    defer original.deinit();
+
+    var buffer = std.ArrayListUnmanaged(u8).empty;
+    defer buffer.deinit(allocator);
+
+    // Serialize
+    try original.serialize(buffer.writer(allocator));
+
+    var restored = utf8.UnicodeCharClass.init(allocator);
+    defer restored.deinit();
+
+    // Deserialize
+    var reader = std.io.fixedBufferStream(buffer.items);
+    try restored.deserialize(reader.reader());
+
+    // Verify deserialized class matches original
+    try testing.expectEqual(original.ranges.items.len, restored.ranges.items.len);
+
+    for (original.ranges.items) |range| {
+        try testing.expect(restored.contains(range.start));
+        try testing.expect(restored.contains(range.end));
+    }
 }
 
 test "Utf8Boundary - boundary detection" {
