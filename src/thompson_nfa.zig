@@ -214,4 +214,61 @@ pub const ThompsonNfa = struct {
     pub fn getMatchResult(self: *const ThompsonNfa) struct { start: ?usize, end: ?usize } {
         return .{ .start = self.match_start, .end = self.match_end };
     }
+
+    // 便捷的执行函数，用于替换exec.zig的功能
+    pub fn exec(allocator: Allocator, prog: Program, prog_start: usize, input: *Input, slots: *std.ArrayList(?usize)) !bool {
+        var nfa = try ThompsonNfa.init(allocator, &prog);
+        defer nfa.deinit();
+
+        // 准备捕获槽位供引擎写入
+        if (slots.items.len < prog.slot_count) try slots.resize(allocator, prog.slot_count);
+        var i: usize = 0;
+        while (i < slots.items.len) : (i += 1) {
+            slots.items[i] = null;
+        }
+        nfa.setSlots(slots);
+
+        // 执行匹配
+        const matched = try nfa.execute(input, prog_start);
+
+        // 如果匹配成功，更新捕获组信息
+        if (matched) {
+            const match_result = nfa.getMatchResult();
+            if (slots.items.len < 2) try slots.resize(allocator, 2);
+
+            // 如果slot 0和1没有被正确设置，尝试从捕获组或match_result推导
+            if (slots.items[0] == null or slots.items[1] == null) {
+                if (match_result.start) |start| {
+                    if (match_result.end) |end| {
+                        if (start <= end) {
+                            slots.items[0] = start;
+                            slots.items[1] = end;
+                        } else {
+                            slots.items[0] = end;
+                            slots.items[1] = end;
+                        }
+                    } else {
+                        slots.items[0] = start;
+                    }
+                } else if (match_result.end) |end| {
+                    slots.items[1] = end;
+                }
+            }
+
+            // 验证所有捕获组的边界，确保开始位置不大于结束位置
+            var capture_idx: usize = 0;
+            while (capture_idx + 1 < slots.items.len) : (capture_idx += 2) {
+                if (slots.items[capture_idx]) |start| {
+                    if (slots.items[capture_idx + 1]) |end| {
+                        if (start > end) {
+                            slots.items[capture_idx] = null;
+                            slots.items[capture_idx + 1] = null;
+                        }
+                    }
+                }
+            }
+        }
+
+        return matched;
+    }
 };

@@ -5,7 +5,7 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const parse = @import("parse.zig");
 const compile = @import("compile.zig");
-const exec = @import("exec.zig");
+const thompson_nfa = @import("thompson_nfa.zig");
 const input_mod = @import("input.zig");
 
 const Parser = parse.Parser;
@@ -41,9 +41,9 @@ pub const Regex = struct {
 
     pub fn match(self: *Regex, input: []const u8) !bool {
         var input_obj = Input.init(input, .bytes);
-        var slots = ArrayListUnmanaged(?usize){};
+        var slots = std.ArrayListUnmanaged(?usize){};
         defer slots.deinit(self.allocator);
-        return exec.exec(self.allocator, self.program, self.program.find_start, &input_obj, &slots);
+        return thompson_nfa.ThompsonNfa.exec(self.allocator, self.program, self.program.find_start, &input_obj, &slots);
     }
 
     pub fn partialMatch(self: *Regex, input: []const u8) !bool {
@@ -52,10 +52,10 @@ pub const Regex = struct {
 
     pub fn find(self: *Regex, input: []const u8) !?Match {
         var input_obj = Input.init(input, .bytes);
-        var slots = ArrayListUnmanaged(?usize){};
+        var slots = std.ArrayListUnmanaged(?usize){};
         defer slots.deinit(self.allocator);
 
-        const is_match = try exec.exec(self.allocator, self.program, self.program.find_start, &input_obj, &slots);
+        const is_match = try thompson_nfa.ThompsonNfa.exec(self.allocator, self.program, self.program.find_start, &input_obj, &slots);
 
         if (is_match) {
             return Match{
@@ -68,10 +68,10 @@ pub const Regex = struct {
 
     pub fn captures(self: *Regex, input: []const u8) !?Captures {
         var input_obj = Input.init(input, .bytes);
-        var slots = ArrayListUnmanaged(?usize){};
+        var slots = std.ArrayListUnmanaged(?usize){};
         defer slots.deinit(self.allocator);
 
-        const is_match = try exec.exec(self.allocator, self.program, self.program.find_start, &input_obj, &slots);
+        const is_match = try thompson_nfa.ThompsonNfa.exec(self.allocator, self.program, self.program.find_start, &input_obj, &slots);
 
         if (is_match) {
             return try Captures.init(input, self.allocator, slots.items);

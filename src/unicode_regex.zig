@@ -21,7 +21,7 @@ const compile = @import("compile.zig");
 const Program = compile.Program;
 const Instruction = compile.Instruction;
 const InstructionData = compile.InstructionData;
-const exec = @import("exec.zig");
+const thompson_nfa = @import("thompson_nfa.zig");
 
 // Unicode增强的NFA执行器
 pub const UnicodeNfaEngine = struct {
@@ -382,7 +382,7 @@ pub const UnicodeRegex = struct {
             var pos: usize = 0;
             while (pos < input.len) {
                 var sub_input = Input.init(input[pos..], .bytes);
-                const is_match = try exec.exec(self.allocator, self.program.*, self.program.start, &sub_input, &self.slots);
+                const is_match = try thompson_nfa.ThompsonNfa.exec(self.allocator, self.program.*, self.program.start, &sub_input, &self.slots);
                 if (is_match) {
                     return true;
                 }
@@ -391,7 +391,7 @@ pub const UnicodeRegex = struct {
             return false;
         } else {
             // 非多行模式，只在开头匹配
-            return exec.exec(self.allocator, self.program.*, self.program.find_start, &input_wrapper, &self.slots);
+            return thompson_nfa.ThompsonNfa.exec(self.allocator, self.program.*, self.program.find_start, &input_wrapper, &self.slots);
         }
     }
 
@@ -403,7 +403,7 @@ pub const UnicodeRegex = struct {
         if (self.options.multiline) {
             while (pos < input.len) {
                 var sub_input = Input.init(input[pos..], .bytes);
-                const is_match = try exec.exec(self.allocator, self.program.*, self.program.start, &sub_input, &self.slots);
+                const is_match = try thompson_nfa.ThompsonNfa.exec(self.allocator, self.program.*, self.program.start, &sub_input, &self.slots);
 
                 if (is_match) {
                     const start = self.slots.items[0] orelse 0;
@@ -418,7 +418,7 @@ pub const UnicodeRegex = struct {
         } else {
             // 非多行模式，从开头搜索
             var input_wrapper = Input.init(input, .bytes);
-            const is_match = try exec.exec(self.allocator, self.program.*, self.program.start, &input_wrapper, &self.slots);
+            const is_match = try thompson_nfa.ThompsonNfa.exec(self.allocator, self.program.*, self.program.start, &input_wrapper, &self.slots);
 
             if (is_match) {
                 return .{ .start = self.slots.items[0] orelse 0, .end = self.slots.items[1] orelse 0 };
@@ -440,7 +440,7 @@ pub const UnicodeRegex = struct {
             var sub_input = Input.init(input[pos..], .bytes);
 
             // 尝试匹配
-            const is_match = try exec.exec(self.allocator, self.program.*, self.program.start, &sub_input, &self.slots);
+            const is_match = try thompson_nfa.ThompsonNfa.exec(self.allocator, self.program.*, self.program.start, &sub_input, &self.slots);
 
             if (is_match) {
                 // 获取匹配位置

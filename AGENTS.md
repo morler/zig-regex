@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Source lives in `src/` (e.g., `regex.zig`, `compile.zig`, `exec.zig`, `parse.zig`).
+- Source lives in `src/` (e.g., `regex.zig`, `compile.zig`, `thompson_nfa.zig`, `parse.zig`).
 - Tests are colocated in `src/` as `*_test.zig` (see `src/all_test.zig`).
 - C interop header in `include/regex.h`; examples in `example/`.
 - Build files: `build.zig` and `build.zig.zon`.
