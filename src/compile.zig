@@ -10,7 +10,7 @@ const Parser = parser.Parser;
 const ByteClass = parser.ByteClass;
 const Expr = parser.Expr;
 const Assertion = parser.Assertion;
-const literal_engine = @import("literal_engine.zig");
+// const literal_engine = @import("literal_engine.zig"); // 已删除 - 过度优化
 
 pub const InstructionData = union(enum) {
     // Match the specified character.
@@ -193,22 +193,22 @@ pub const Compiler = struct {
     allocator: Allocator,
     // Capture state
     capture_index: usize,
-    // 字面量优化分析
-    literal_engine: ?literal_engine.LiteralEngine,
+    // 字面量优化分析 - 已禁用
+    // literal_engine: ?literal_engine.LiteralEngine,
 
     pub fn init(a: Allocator) Compiler {
         return Compiler{
             .insts = ArrayListUnmanaged(PartialInst).empty,
             .allocator = a,
             .capture_index = 0,
-            .literal_engine = null,
+            // .literal_engine = null, // 已禁用
         };
     }
 
     pub fn deinit(c: *Compiler) void {
-        if (c.literal_engine) |*engine| {
-            engine.deinit();
-        }
+        // if (c.literal_engine) |*engine| {
+        //     engine.deinit();
+        // } // 已禁用
         c.insts.deinit(c.allocator);
     }
 
@@ -220,8 +220,8 @@ pub const Compiler = struct {
 
     // Compile the regex expression
     pub fn compile(c: *Compiler, expr: *const Expr) !Program {
-        // 分析字面量优化机会
-        c.analyzeLiteralOptimization(expr);
+        // 分析字面量优化机会 - 已禁用
+        // c.analyzeLiteralOptimization(expr);
 
         // surround in a full program match
         const entry = c.insts.items.len;
@@ -272,8 +272,8 @@ pub const Compiler = struct {
         try p.appendSlice(c.allocator, &fragment);
 
         // 构建带有字面量优化信息的程序
-        var program = Program.init(c.allocator, try p.toOwnedSlice(c.allocator), fragment_start, c.capture_index);
-        c.setupLiteralOptimization(&program);
+        const program = Program.init(c.allocator, try p.toOwnedSlice(c.allocator), fragment_start, c.capture_index);
+        // c.setupLiteralOptimization(&program); // 已禁用
 
         return program;
     }
@@ -575,55 +575,55 @@ pub const Compiler = struct {
         c.fill(hole, c.insts.items.len);
     }
 
-    // 分析字面量优化机会
-    fn analyzeLiteralOptimization(c: *Compiler, expr: *const Expr) void {
-        // 初始化字面量引擎
-        const literal_engine_instance = literal_engine.LiteralEngine.init(c.allocator);
-        c.literal_engine = literal_engine_instance;
+    // 分析字面量优化机会 - 已禁用
+    // fn analyzeLiteralOptimization(c: *Compiler, expr: *const Expr) void {
+    //     // 初始化字面量引擎
+    //     const literal_engine_instance = literal_engine.LiteralEngine.init(c.allocator);
+    //     c.literal_engine = literal_engine_instance;
 
-        // 分析表达式以获取字面量候选者
-        if (c.literal_engine) |*engine| {
-            engine.analyze(expr) catch {
-                // 如果分析失败，禁用字面量优化
-                engine.deinit();
-                c.literal_engine = null;
-                return;
-            };
-        }
-    }
+    //     // 分析表达式以获取字面量候选者
+    //     if (c.literal_engine) |*engine| {
+    //         engine.analyze(expr) catch {
+    //             // 如果分析失败，禁用字面量优化
+    //             engine.deinit();
+    //             c.literal_engine = null;
+    //             return;
+    //         };
+    //     }
+    // }
 
-    // 设置字面量优化信息到程序中
-    fn setupLiteralOptimization(c: *Compiler, program: *Program) void {
-        // 检查是否已经有字面量优化设置（避免重复设置）
-        if (program.literal_optimization.enabled) {
-            return; // 已经设置过，不再重复处理
-        }
+    // 设置字面量优化信息到程序中 - 已禁用
+    // fn setupLiteralOptimization(c: *Compiler, program: *Program) void {
+    //     // 检查是否已经有字面量优化设置（避免重复设置）
+    //     if (program.literal_optimization.enabled) {
+    //         return; // 已经设置过，不再重复处理
+    //     }
 
-        if (c.literal_engine) |*engine| {
-            if (engine.canOptimize()) {
-                const literal = engine.getLiteral();
-                if (literal) |lit| {
-                    // 复制字面量字符串，因为 LiteralEngine 将会被释放
-                    program.literal_optimization = .{
-                        .enabled = true,
-                        .literal = c.allocator.dupe(u8, lit) catch null,
-                        .strategy = switch (engine.getStrategy()) {
-                            .FixedString => "fixed_string",
-                            .BoyerMoore => "boyer_moore",
-                            .AhoCorasick => "aho_corasick",
-                            else => "none",
-                        },
-                    };
-                    return;
-                }
-            }
-        }
+    //     if (c.literal_engine) |*engine| {
+    //         if (engine.canOptimize()) {
+    //             const literal = engine.getLiteral();
+    //             if (literal) |lit| {
+    //                 // 复制字面量字符串，因为 LiteralEngine 将会被释放
+    //                 program.literal_optimization = .{
+    //                     .enabled = true,
+    //                     .literal = c.allocator.dupe(u8, lit) catch null,
+    //                     .strategy = switch (engine.getStrategy()) {
+    //                         .FixedString => "fixed_string",
+    //                         .BoyerMoore => "boyer_moore",
+    //                         .AhoCorasick => "aho_corasick",
+    //                         else => "none",
+    //                     },
+    //                 };
+    //                 return;
+    //             }
+    //         }
+    //     }
 
-        // 如果没有字面量引擎或优化不可用，设置默认值
-        program.literal_optimization = .{
-            .enabled = false,
-            .literal = null,
-            .strategy = "none",
-        };
-    }
+    //     // 如果没有字面量引擎或优化不可用，设置默认值
+    //     program.literal_optimization = .{
+    //         .enabled = false,
+    //         .literal = null,
+    //         .strategy = "none",
+    //     };
+    // }
 };

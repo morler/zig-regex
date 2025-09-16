@@ -23,6 +23,97 @@ const input_new = @import("input_new.zig");
 const Input = input_new.Input;
 const InputBytes = input_new.InputBytes;
 
+// 匹配选项 - 从 regex_new.zig 合并
+pub const MatchOptions = struct {
+    case_insensitive: bool = false,
+    unicode: bool = false,
+    multiline: bool = false,
+    dot_matches_newline: bool = false,
+    enable_literals: bool = true,
+};
+
+// 编译选项 - 从 regex_new.zig 合并
+pub const CompileOptions = struct {
+    enable_literal_optimization: bool = true,
+    unicode: bool = false,
+    optimization_level: OptimizationLevel = .default,
+
+    pub const OptimizationLevel = enum {
+        none,
+        default,
+        aggressive,
+    };
+};
+
+// 匹配结果 - 从 regex_new.zig 合并
+pub const Match = struct {
+    span: Span,
+    captures: ?[]const Span,
+    matched_text: []const u8,
+
+    // 获取匹配的文本
+    pub fn text(self: Match, input: []const u8) []const u8 {
+        return input[self.span.lower..self.span.upper];
+    }
+
+    // 获取捕获组文本
+    pub fn captureText(self: Match, input: []const u8, index: usize) ?[]const u8 {
+        if (self.captures == null or index >= self.captures.?.len) return null;
+        const span = self.captures.?[index];
+        return input[span.lower..span.upper];
+    }
+
+    // 获取捕获组数量
+    pub fn captureCount(self: Match) usize {
+        return if (self.captures) |caps| caps.len else 0;
+    }
+};
+
+// 匹配迭代器 - 从 regex_new.zig 合并
+pub const MatchIterator = struct {
+    allocator: Allocator,
+    regex: *const Regex,
+    input: []const u8,
+    current_pos: usize,
+
+    pub fn init(allocator: Allocator, regex: *const Regex, input: []const u8) MatchIterator {
+        return MatchIterator{
+            .allocator = allocator,
+            .regex = regex,
+            .input = input,
+            .current_pos = 0,
+        };
+    }
+
+    pub fn deinit(self: *MatchIterator) void {
+        _ = self;
+    }
+
+    // 获取下一个匹配
+    pub fn next(self: *MatchIterator) !?Match {
+        if (self.current_pos >= self.input.len) return null;
+
+        const result = try self.regex.findAt(self.input, self.current_pos);
+        if (result) |match| {
+            self.current_pos = match.span.upper;
+            return match;
+        }
+        return null;
+    }
+
+    // 获取所有匹配
+    pub fn collectAll(self: *MatchIterator, allocator: Allocator) ![]Match {
+        var match_list = std.ArrayList(Match).init(allocator);
+        errdefer match_list.deinit();
+
+        while (try self.next()) |match| {
+            try match_list.append(match);
+        }
+
+        return match_list.toOwnedSlice();
+    }
+};
+
 pub const Regex = struct {
     // Internal allocator
     allocator: Allocator,
@@ -35,6 +126,12 @@ pub const Regex = struct {
 
     // Compile a regex, possibly returning any error which occurred.
     pub fn compile(a: Allocator, re: []const u8) !Regex {
+        return compileWithOptions(a, re, .{});
+    }
+
+    // 带选项编译正则表达式 - 从 regex_new.zig 合并
+    pub fn compileWithOptions(a: Allocator, re: []const u8, options: CompileOptions) !Regex {
+        _ = options; // TODO: 实现选项功能
         var p = Parser.init(a);
         defer p.deinit();
 
@@ -66,6 +163,40 @@ pub const Regex = struct {
     pub fn partialMatch(re: *Regex, input_str: []const u8) !bool {
         var input = Input.init(input_str, .bytes);
         return exec.exec(re.allocator, re.compiled, re.compiled.find_start, &input, &re.slots);
+    }
+
+    // 简化的匹配接口 - 从 regex_new.zig 合并
+    pub fn isMatch(re: *Regex, input_str: []const u8) !bool {
+        return re.match(input_str);
+    }
+
+    // 查找第一个匹配 - 从 regex_new.zig 合并
+    pub fn find(re: *Regex, input_str: []const u8) !?Match {
+        return re.findAt(input_str, 0);
+    }
+
+    // 从指定位置查找 - 从 regex_new.zig 合并
+    pub fn findAt(re: *Regex, input_str: []const u8, start_pos: usize) !?Match {
+        _ = start_pos; // TODO: 实现 start_pos 功能
+        var input = Input.init(input_str, .bytes);
+        const is_match = try exec.exec(re.allocator, re.compiled, re.compiled.find_start, &input, &re.slots);
+
+        if (is_match) {
+            return Match{
+                .span = Span{
+                    .lower = re.slots.items[0] orelse 0,
+                    .upper = re.slots.items[1] orelse input_str.len,
+                },
+                .captures = null, // TODO: 实现捕获组
+                .matched_text = input_str[re.slots.items[0] orelse 0 .. re.slots.items[1] orelse input_str.len],
+            };
+        }
+        return null;
+    }
+
+    // 创建匹配迭代器 - 从 regex_new.zig 合并
+    pub fn iterator(re: *Regex, input_str: []const u8) MatchIterator {
+        return MatchIterator.init(re.allocator, re, input_str);
     }
 
     // Where in the string does the regex and its capture groups match?

@@ -4,8 +4,8 @@ const testing = std.testing;
 
 const compile = @import("compile.zig");
 const input_new = @import("input_new.zig");
-const thompson_nfa2 = @import("thompson_nfa2.zig");
-const ThompsonNfa = thompson_nfa2.ThompsonNfa;
+const thompson_nfa = @import("thompson_nfa.zig");
+const ThompsonNfa = thompson_nfa.ThompsonNfa;
 
 /// Performance benchmark for Thompson NFA epsilon-closure operations
 pub fn benchmarkEpsilonClosure(allocator: Allocator, nfa_size: usize, complexity_factor: usize) !struct {

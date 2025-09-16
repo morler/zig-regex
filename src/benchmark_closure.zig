@@ -1,8 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const thompson_nfa2 = @import("thompson_nfa2.zig");
-const ThompsonNfa = thompson_nfa2.ThompsonNfa;
+const thompson_nfa = @import("thompson_nfa.zig");
+const ThompsonNfa = thompson_nfa.ThompsonNfa;
 const compile = @import("compile.zig");
 const input_new = @import("input_new.zig");
 

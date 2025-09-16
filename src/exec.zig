@@ -5,7 +5,7 @@ const compile = @import("compile.zig");
 const Program = compile.Program;
 const input_new = @import("input_new.zig");
 const Input = input_new.Input;
-const thompson_nfa = @import("thompson_nfa2.zig");
+const thompson_nfa = @import("thompson_nfa.zig");
 const ThompsonNfa = thompson_nfa.ThompsonNfa;
 
 // 使用 Thompson NFA 引擎执行正则表达式匹配
