@@ -125,17 +125,6 @@ pub const Program = struct {
     slot_count: usize,
     // Allocator which owns the instructions
     allocator: Allocator,
-    // 字面量优化信息
-    literal_optimization: LiteralOptimization,
-
-    pub const LiteralOptimization = struct {
-        /// 是否启用字面量优化
-        enabled: bool,
-        /// 字面量内容（如果存在）
-        literal: ?[]const u8,
-        /// 优化策略
-        strategy: []const u8,
-    };
 
     pub fn init(allocator: Allocator, a: []Instruction, find_start: usize, slot_count: usize) Program {
         return Program{
@@ -144,11 +133,6 @@ pub const Program = struct {
             .start = 0,
             .find_start = find_start,
             .slot_count = slot_count,
-            .literal_optimization = .{
-                .enabled = false,
-                .literal = null,
-                .strategy = "none",
-            },
         };
     }
 
@@ -160,9 +144,6 @@ pub const Program = struct {
                 },
                 else => {},
             }
-        }
-        if (p.literal_optimization.literal) |literal| {
-            p.allocator.free(literal);
         }
         p.allocator.free(p.insts);
     }
@@ -193,22 +174,16 @@ pub const Compiler = struct {
     allocator: Allocator,
     // Capture state
     capture_index: usize,
-    // 字面量优化分析 - 已禁用
-    // literal_engine: ?literal_engine.LiteralEngine,
 
     pub fn init(a: Allocator) Compiler {
         return Compiler{
             .insts = ArrayListUnmanaged(PartialInst).empty,
             .allocator = a,
             .capture_index = 0,
-            // .literal_engine = null, // 已禁用
         };
     }
 
     pub fn deinit(c: *Compiler) void {
-        // if (c.literal_engine) |*engine| {
-        //     engine.deinit();
-        // } // 已禁用
         c.insts.deinit(c.allocator);
     }
 
