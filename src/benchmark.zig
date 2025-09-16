@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const testing = std.testing;
 
 const compile = @import("compile.zig");
-const input_new = @import("input_new.zig");
+const input_mod = @import("input.zig");
 const thompson_nfa = @import("thompson_nfa.zig");
 const ThompsonNfa = thompson_nfa.ThompsonNfa;
 
@@ -40,14 +40,14 @@ pub fn benchmarkEpsilonClosure(allocator: Allocator, nfa_size: usize, complexity
     var nfa = try ThompsonNfa.init(allocator, &program);
     defer nfa.deinit();
 
-    var input = input_new.Input.init("", .bytes);
+    var input_instance = input_mod.Input.init("", .bytes);
 
     // Get baseline memory usage
     const baseline_memory = getMemoryUsage();
 
     // Time the closure computation
     const start_time = std.time.nanoTimestamp();
-    try nfa.addClosureFrom(0, program.slot_count, &input, &nfa.thread_set.current);
+    try nfa.addClosureFrom(0, program.slot_count, &input_instance, &nfa.thread_set.current);
     const end_time = std.time.nanoTimestamp();
 
     // Count visited nodes
@@ -81,8 +81,8 @@ pub fn benchmarkExecution(allocator: Allocator, pattern: []const u8, text: []con
     const start_time = std.time.nanoTimestamp();
 
     for (0..iterations) |_| {
-        var input = input_new.Input.init(text, .bytes);
-        if (try nfa.execute(&input, program.start)) {
+        var input_instance = input_mod.Input.init(text, .bytes);
+        if (try nfa.execute(&input_instance, program.start)) {
             total_matches += 1;
         }
     }

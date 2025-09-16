@@ -14,8 +14,8 @@ const UnicodeNormalization = utf8.UnicodeNormalization;
 const UnicodeCaseConversion = utf8.UnicodeCaseConversion;
 const UnicodeAwareMatcher = utf8.UnicodeAwareMatcher;
 
-const input_new = @import("input_new.zig");
-const Input = input_new.Input;
+const input_mod = @import("input.zig");
+const Input = input_mod.Input;
 
 const compile = @import("compile.zig");
 const Program = compile.Program;

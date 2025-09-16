@@ -8,8 +8,8 @@ const Instruction = compile.Instruction;
 const InstructionData = compile.InstructionData;
 const parser = @import("parse.zig");
 
-const input_new = @import("input_new.zig");
-const Input = input_new.Input;
+const input_mod = @import("input.zig");
+const Input = input_mod.Input;
 
 const bit_vector = @import("bit_vector.zig");
 const BitVector = bit_vector.BitVector;

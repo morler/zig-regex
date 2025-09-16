@@ -6,12 +6,12 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const parse = @import("parse.zig");
 const compile = @import("compile.zig");
 const exec = @import("exec.zig");
-const input_new = @import("input_new.zig");
+const input_mod = @import("input.zig");
 
 const Parser = parse.Parser;
 const Compiler = compile.Compiler;
 const Program = compile.Program;
-const Input = input_new.Input;
+const Input = input_mod.Input;
 
 pub const Regex = struct {
     allocator: Allocator,

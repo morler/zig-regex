@@ -3,8 +3,8 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const compile = @import("compile.zig");
 const Program = compile.Program;
-const input_new = @import("input_new.zig");
-const Input = input_new.Input;
+const input_mod = @import("input.zig");
+const Input = input_mod.Input;
 const thompson_nfa = @import("thompson_nfa.zig");
 const ThompsonNfa = thompson_nfa.ThompsonNfa;
 

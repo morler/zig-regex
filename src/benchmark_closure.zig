@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const thompson_nfa = @import("thompson_nfa.zig");
 const ThompsonNfa = thompson_nfa.ThompsonNfa;
 const compile = @import("compile.zig");
-const input_new = @import("input_new.zig");
+const input_mod = @import("input.zig");
 
 pub fn benchmarkEpsilonClosure(allocator: Allocator) !void {
     const print = std.debug.print;
@@ -51,7 +51,7 @@ fn benchmarkSplitFanOut(allocator: Allocator) !void {
     var nfa = try ThompsonNfa.init(allocator, &program);
     defer nfa.deinit();
 
-    var input = input_new.Input.init("", .bytes);
+    var input_instance = input_mod.Input.init("", .bytes);
 
     // 预热
     var i_preheat: usize = 0;
@@ -106,7 +106,7 @@ fn benchmarkDeepRecursion(allocator: Allocator) !void {
     var nfa = try ThompsonNfa.init(allocator, &program);
     defer nfa.deinit();
 
-    var input = input_new.Input.init("", .bytes);
+    var input_instance = input_mod.Input.init("", .bytes);
 
     // 预热
     var i_preheat: usize = 0;
@@ -171,7 +171,7 @@ fn benchmarkDenseGraph(allocator: Allocator) !void {
     var nfa = try ThompsonNfa.init(allocator, &program);
     defer nfa.deinit();
 
-    var input = input_new.Input.init("", .bytes);
+    var input_instance = input_mod.Input.init("", .bytes);
 
     // 预热
     var i_preheat: usize = 0;
@@ -227,7 +227,7 @@ fn benchmarkComplexNetwork(allocator: Allocator) !void {
     var nfa = try ThompsonNfa.init(allocator, &program);
     defer nfa.deinit();
 
-    var input = input_new.Input.init("", .bytes);
+    var input_instance = input_mod.Input.init("", .bytes);
 
     // 预热
     var i_preheat: usize = 0;
