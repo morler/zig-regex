@@ -42,7 +42,7 @@ fn check(re_input: []const u8, to_match: []const u8, expected: bool) void {
             \\ -- Bytecode -------------------
             \\
         , .{});
-        re_debug.dumpProgram(re.compiled);
+        re_debug.dumpProgram(re.program);
 
         debug.print(
             \\

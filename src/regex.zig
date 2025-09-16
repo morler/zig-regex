@@ -16,7 +16,6 @@ const Input = input_mod.Input;
 pub const Regex = struct {
     allocator: Allocator,
     program: Program,
-    compiled: Program,
     pattern: []const u8,
 
     pub fn compile(allocator: Allocator, pattern: []const u8) !Regex {
@@ -32,7 +31,6 @@ pub const Regex = struct {
         return Regex{
             .allocator = allocator,
             .program = compiled_program,
-            .compiled = compiled_program,
             .pattern = pattern,
         };
     }

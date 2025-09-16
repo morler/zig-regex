@@ -13,29 +13,18 @@ const Assertion = parser.Assertion;
 // const literal_engine = @import("literal_engine.zig"); // 已删除 - 过度优化
 
 pub const InstructionData = union(enum) {
-    // Match the specified character.
     Char: u8,
-    // Match the specified character ranges.
     ByteClass: ByteClass,
-    // Matches the AnyChar special cases
     AnyCharNotNL,
-    // Empty match (\w assertion)
     EmptyMatch: Assertion,
-    // Stop the thread, found a match
     Match,
-    // Jump to the instruction at address x
     Jump,
-    // Split execution, spawing a new thread and continuing in lockstep
     Split: usize,
-    // Slot to save position in
     Save: usize,
 };
 
-// Represents instructions for the VM.
 pub const Instruction = struct {
-    // Next instruction to execute
     out: usize,
-    // Associated data with this
     data: InstructionData,
 
     pub fn new(out: usize, data: InstructionData) Instruction {
@@ -46,42 +35,24 @@ pub const Instruction = struct {
     }
 };
 
-// Represents an instruction with unpatched holes.
 const InstHole = union(enum) {
-    // Match with an unfilled output
     Char: u8,
-    // Match a character class range
     ByteClass: ByteClass,
-    // Empty Match assertion
     EmptyMatch: Assertion,
-    // Match any character
     AnyCharNotNL,
-    // Split with no unfilled branch
     Split,
-    // Split with a filled first branch
     Split1: usize,
-    // Split with a filled second branch
     Split2: usize,
-    // Save capture
     Save: usize,
 };
 
-// Represents a partial instruction. During compilation the instructions will be a mix of compiled
-// and un-compiled. All instructions must be in the compiled state when we finish processing.
 const PartialInst = union(enum) {
-    // A completely compiled instruction
     Compiled: Instruction,
-
-    // A partially compiled instruction, the back-links are not yet filled
     Uncompiled: InstHole,
 
-    // Modify the current instruction to point to the specified instruction.
     pub fn fill(s: *PartialInst, i: usize) void {
         switch (s.*) {
             PartialInst.Uncompiled => |ih| {
-                // Generate the corresponding compiled instruction. All simply goto the specified
-                // instruction, except for the dual split case, in which both outgoing pointers
-                // go to the same place.
                 const compiled = switch (ih) {
                     InstHole.Char => |ch| Instruction.new(i, InstructionData{ .Char = ch }),
 
@@ -91,14 +62,8 @@ const PartialInst = union(enum) {
 
                     InstHole.ByteClass => |class| Instruction.new(i, InstructionData{ .ByteClass = class }),
 
-                    InstHole.Split =>
-                    // If we both point to the same output, we can encode as a jump
-                    Instruction.new(i, InstructionData.Jump),
-
-                    // 1st was already filled
+                    InstHole.Split => Instruction.new(i, InstructionData.Jump),
                     InstHole.Split1 => |split| Instruction.new(split, InstructionData{ .Split = i }),
-
-                    // 2nd was already filled
                     InstHole.Split2 => |split| Instruction.new(i, InstructionData{ .Split = split }),
 
                     InstHole.Save => |slot| Instruction.new(i, InstructionData{ .Save = slot }),
@@ -106,24 +71,16 @@ const PartialInst = union(enum) {
 
                 s.* = PartialInst{ .Compiled = compiled };
             },
-            PartialInst.Compiled => {
-                // nothing to do, already filled
-            },
+            PartialInst.Compiled => {},
         }
     }
 };
 
-// A program represents the compiled bytecode of an NFA.
 pub const Program = struct {
-    // Sequence of instructions representing an NFA
     insts: []Instruction,
-    // Start instruction
     start: usize,
-    // Find Start instruction
     find_start: usize,
-    // Max number of slots required
     slot_count: usize,
-    // Allocator which owns the instructions
     allocator: Allocator,
 
     pub fn init(allocator: Allocator, a: []Instruction, find_start: usize, slot_count: usize) Program {
@@ -149,30 +106,20 @@ pub const Program = struct {
     }
 };
 
-// A Hole represents the outgoing node of a partially compiled Fragment.
-//
-// If None, the Hole needs to be back-patched as we do not yet know which instruction this
-// points to yet.
 const Hole = union(enum) {
     None,
     One: usize,
     Many: ArrayList(Hole),
 };
 
-// A patch represents an unpatched output for a contigious sequence of instructions.
 const Patch = struct {
-    // The address of the first instruction
     entry: usize,
-    // The output hole of this instruction (to be filled to an actual address/es)
     hole: Hole,
 };
 
-// A Compiler compiles a regex expression into a bytecode representation of the NFA.
 pub const Compiler = struct {
-    // Stores all partial instructions
     insts: ArrayList(PartialInst),
     allocator: Allocator,
-    // Capture state
     capture_index: usize,
 
     pub fn init(a: Allocator) Compiler {
