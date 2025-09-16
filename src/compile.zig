@@ -195,8 +195,6 @@ pub const Compiler = struct {
 
     // Compile the regex expression
     pub fn compile(c: *Compiler, expr: *const Expr) !Program {
-        // 分析字面量优化机会 - 已禁用
-        // c.analyzeLiteralOptimization(expr);
 
         // surround in a full program match
         const entry = c.insts.items.len;
@@ -246,9 +244,7 @@ pub const Compiler = struct {
         };
         try p.appendSlice(c.allocator, &fragment);
 
-        // 构建带有字面量优化信息的程序
         const program = Program.init(c.allocator, try p.toOwnedSlice(c.allocator), fragment_start, c.capture_index);
-        // c.setupLiteralOptimization(&program); // 已禁用
 
         return program;
     }
@@ -397,19 +393,16 @@ pub const Compiler = struct {
                 var holes = ArrayListUnmanaged(Hole).empty;
                 errdefer holes.deinit(c.allocator);
 
-                // TODO: Doees this need to be dynamically allocated?
-                const last_hole = try c.allocator.create(Hole);
-                defer c.allocator.destroy(last_hole);
-                last_hole.* = .None;
+                var last_hole: Hole = .None;
 
                 // This compiles one branch of the split at a time.
                 for (subexprs.items[0 .. subexprs.items.len - 1]) |subexpr| {
-                    c.fillToNext(last_hole.*);
+                    c.fillToNext(last_hole);
 
                     // next entry will be a sub-expression
                     //
                     // We fill the second part of this hole on the next sub-expression.
-                    last_hole.* = try c.pushHole(InstHole{ .Split1 = c.insts.items.len + 1 });
+                    last_hole = try c.pushHole(InstHole{ .Split1 = c.insts.items.len + 1 });
 
                     // compile the subexpression
                     const p = try c.compileInternal(subexpr);
@@ -420,7 +413,7 @@ pub const Compiler = struct {
 
                 // one entry left, push a sub-expression so we end with a double-subexpression.
                 const p = try c.compileInternal(subexprs.items[subexprs.items.len - 1]);
-                c.fill(last_hole.*, p.entry);
+                c.fill(last_hole, p.entry);
 
                 // push the last sub-expression hole
                 try holes.append(c.allocator, p.hole);
@@ -550,55 +543,4 @@ pub const Compiler = struct {
         c.fill(hole, c.insts.items.len);
     }
 
-    // 分析字面量优化机会 - 已禁用
-    // fn analyzeLiteralOptimization(c: *Compiler, expr: *const Expr) void {
-    //     // 初始化字面量引擎
-    //     const literal_engine_instance = literal_engine.LiteralEngine.init(c.allocator);
-    //     c.literal_engine = literal_engine_instance;
-
-    //     // 分析表达式以获取字面量候选者
-    //     if (c.literal_engine) |*engine| {
-    //         engine.analyze(expr) catch {
-    //             // 如果分析失败，禁用字面量优化
-    //             engine.deinit();
-    //             c.literal_engine = null;
-    //             return;
-    //         };
-    //     }
-    // }
-
-    // 设置字面量优化信息到程序中 - 已禁用
-    // fn setupLiteralOptimization(c: *Compiler, program: *Program) void {
-    //     // 检查是否已经有字面量优化设置（避免重复设置）
-    //     if (program.literal_optimization.enabled) {
-    //         return; // 已经设置过，不再重复处理
-    //     }
-
-    //     if (c.literal_engine) |*engine| {
-    //         if (engine.canOptimize()) {
-    //             const literal = engine.getLiteral();
-    //             if (literal) |lit| {
-    //                 // 复制字面量字符串，因为 LiteralEngine 将会被释放
-    //                 program.literal_optimization = .{
-    //                     .enabled = true,
-    //                     .literal = c.allocator.dupe(u8, lit) catch null,
-    //                     .strategy = switch (engine.getStrategy()) {
-    //                         .FixedString => "fixed_string",
-    //                         .BoyerMoore => "boyer_moore",
-    //                         .AhoCorasick => "aho_corasick",
-    //                         else => "none",
-    //                     },
-    //                 };
-    //                 return;
-    //             }
-    //         }
-    //     }
-
-    //     // 如果没有字面量引擎或优化不可用，设置默认值
-    //     program.literal_optimization = .{
-    //         .enabled = false,
-    //         .literal = null,
-    //         .strategy = "none",
-    //     };
-    // }
 };
