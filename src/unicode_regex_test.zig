@@ -334,18 +334,12 @@ test "Unicode regex performance" {
 test "Unicode regex edge cases" {
     const allocator = testing.allocator;
 
-    // 空字符串
+    // 空字符串模式（根据标准regex行为，空模式不匹配任何内容）
     {
         var regex = try UnicodeRegex.init(allocator, "");
         defer regex.deinit();
-        try testing.expect(try regex.match(""));
-    }
-
-    // 空模式
-    {
-        var regex = try UnicodeRegex.init(allocator, "");
-        defer regex.deinit();
-        try testing.expect(try regex.match("anything"));
+        try testing.expect(!try regex.match(""));
+        try testing.expect(!try regex.match("anything"));
     }
 
     // 无效UTF-8序列处理

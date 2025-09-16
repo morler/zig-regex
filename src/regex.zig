@@ -10,6 +10,7 @@ const input_mod = @import("input.zig");
 
 const Parser = parse.Parser;
 const Compiler = compile.Compiler;
+const DirectCompiler = compile.DirectCompiler;
 const Program = compile.Program;
 const Input = input_mod.Input;
 
@@ -19,6 +20,7 @@ pub const Regex = struct {
     pattern: []const u8,
 
     pub fn compile(allocator: Allocator, pattern: []const u8) !Regex {
+        // 暂时恢复原来的编译方式，DirectCompiler需要更完整的实现
         var parser = Parser.init(allocator);
         defer parser.deinit();
 

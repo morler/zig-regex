@@ -10,7 +10,6 @@ const Parser = parser.Parser;
 const ByteClass = parser.ByteClass;
 const Expr = parser.Expr;
 const Assertion = parser.Assertion;
-// const literal_engine = @import("literal_engine.zig"); // 已删除 - 过度优化
 
 pub const InstructionData = union(enum) {
     Char: u8,
@@ -490,4 +489,162 @@ pub const Compiler = struct {
         c.fill(hole, c.insts.items.len);
     }
 
+};
+
+// Direct compiler that combines parsing and compilation for better performance
+pub const DirectCompiler = struct {
+    insts: ArrayListUnmanaged(PartialInst),
+    allocator: Allocator,
+    capture_index: usize,
+    pos: usize,
+    pattern: []const u8,
+
+    pub fn init(allocator: Allocator) DirectCompiler {
+        return DirectCompiler{
+            .insts = ArrayListUnmanaged(PartialInst).empty,
+            .allocator = allocator,
+            .capture_index = 0,
+            .pos = 0,
+            .pattern = "",
+        };
+    }
+
+    pub fn deinit(self: *DirectCompiler) void {
+        self.insts.deinit(self.allocator);
+    }
+
+    pub fn compilePattern(allocator: Allocator, pattern: []const u8) !Program {
+        var compiler = DirectCompiler.init(allocator);
+        defer compiler.deinit();
+
+        compiler.pattern = pattern;
+
+        // Directly compile the pattern without intermediate AST
+        try compiler.compileRegexPattern();
+
+        return compiler.buildProgram();
+    }
+
+    fn compileRegexPattern(self: *DirectCompiler) !void {
+        const entry = self.insts.items.len;
+        const index = self.nextCaptureIndex();
+        try self.pushCompiled(Instruction.new(entry + 1, InstructionData{ .Save = index }));
+
+        // Parse and compile directly
+        const patch = try self.compileExpression();
+
+        self.fillToNext(patch.hole);
+        const h = try self.pushHole(InstHole{ .Save = index + 1 });
+
+        self.fillToNext(h);
+        try self.pushCompiled(Instruction.new(0, InstructionData.Match));
+    }
+
+    fn compileExpression(self: *DirectCompiler) !Patch {
+        // Simple implementation for basic regex patterns
+        // This would be expanded to handle all regex features
+        if (self.pos >= self.pattern.len) {
+            return Patch{ .hole = Hole.None, .entry = self.insts.items.len };
+        }
+
+        const ch = self.pattern[self.pos];
+        self.pos += 1;
+
+        switch (ch) {
+            '.' => {
+                const h = try self.pushHole(InstHole.AnyCharNotNL);
+                return Patch{ .hole = h, .entry = self.insts.items.len - 1 };
+            },
+            '*' => {
+                // Handle repetition
+                if (self.pos > 0) {
+                    self.pos -= 1; // Backtrack to get the character to repeat
+                    return self.compileRepeat();
+                }
+                return error.InvalidRegex;
+            },
+            else => {
+                const h = try self.pushHole(InstHole{ .Char = ch });
+                return Patch{ .hole = h, .entry = self.insts.items.len - 1 };
+            }
+        }
+    }
+
+    fn compileRepeat(self: *DirectCompiler) !Patch {
+        if (self.pos >= self.pattern.len) return error.InvalidRegex;
+
+        const ch = self.pattern[self.pos];
+        self.pos += 1; // Skip the character
+        self.pos += 1; // Skip the '*' operator
+
+        // Implement greedy * quantifier
+        _ = try self.pushHole(InstHole.Split);
+        _ = try self.pushHole(InstHole{ .Char = ch });
+        const jump_hole = try self.pushHole(InstHole{ .Split1 = self.insts.items.len - 2 });
+
+        return Patch{ .hole = jump_hole, .entry = self.insts.items.len - 1 };
+    }
+
+    fn nextCaptureIndex(self: *DirectCompiler) usize {
+        const s = self.capture_index;
+        self.capture_index += 2;
+        return s;
+    }
+
+    fn pushCompiled(self: *DirectCompiler, inst: Instruction) !void {
+        try self.insts.append(self.allocator, PartialInst{ .Compiled = inst });
+    }
+
+    fn pushHole(self: *DirectCompiler, hole: InstHole) !Hole {
+        try self.insts.append(self.allocator, PartialInst{ .Uncompiled = hole });
+        return Hole{ .One = self.insts.items.len - 1 };
+    }
+
+    fn fillToNext(self: *DirectCompiler, hole: Hole) void {
+        const next_idx = self.insts.items.len;
+        switch (hole) {
+            Hole.None => {},
+            Hole.One => |pc| self.insts.items[pc].fill(next_idx),
+            Hole.Many => |holes| {
+                for (holes.items) |hole1|
+                    self.fillToNext(hole1);
+                @constCast(&holes).deinit(self.allocator);
+            },
+        }
+    }
+
+    fn buildProgram(self: *DirectCompiler) !Program {
+        var p = ArrayListUnmanaged(Instruction).empty;
+        defer p.deinit(self.allocator);
+
+        for (self.insts.items) |e| {
+            switch (e) {
+                PartialInst.Compiled => |x| {
+                    try p.append(self.allocator, x);
+                },
+                PartialInst.Uncompiled => |h| {
+                    // Convert holes to compiled instructions
+                    const inst = self.holeToInstruction(h, self.insts.items.len);
+                    try p.append(self.allocator, inst);
+                },
+            }
+        }
+
+        const fragment_start = if (p.items.len > 0) p.items.len - 1 else 0;
+        return Program.init(self.allocator, try p.toOwnedSlice(self.allocator), fragment_start, self.capture_index);
+    }
+
+    fn holeToInstruction(self: *DirectCompiler, hole: InstHole, next_pos: usize) Instruction {
+        _ = self; // Mark as used
+        return switch (hole) {
+            .Char => |ch| Instruction.new(next_pos, InstructionData{ .Char = ch }),
+            .ByteClass => |classes| Instruction.new(next_pos, InstructionData{ .ByteClass = classes }),
+            .AnyCharNotNL => Instruction.new(next_pos, InstructionData.AnyCharNotNL),
+            .EmptyMatch => |assertion| Instruction.new(next_pos, InstructionData{ .EmptyMatch = assertion }),
+            .Split => Instruction.new(next_pos, InstructionData{ .Split = next_pos + 1 }),
+            .Split1 => |target| Instruction.new(target, InstructionData{ .Split = next_pos }),
+            .Split2 => |target| Instruction.new(target, InstructionData{ .Split = next_pos - 1 }),
+            .Save => |idx| Instruction.new(next_pos, InstructionData{ .Save = idx }),
+        };
+    }
 };

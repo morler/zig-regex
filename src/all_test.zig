@@ -4,7 +4,6 @@ test "all" {
     _ = @import("regex_test.zig");
     _ = @import("thompson_nfa.zig");
     _ = @import("benchmark.zig");
-    // _ = @import("lazy_dfa_test.zig"); // 已删除 - 过度优化
     _ = @import("utf8_test.zig");
     _ = @import("unicode_regex_test.zig");
     _ = @import("input_test.zig");
