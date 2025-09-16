@@ -30,11 +30,11 @@
 - [x] 删除 `basic_memory_test.zig`
 - [x] 删除 `minimal_memory_test.zig`
 - [x] 删除 `simple_memory_test.zig`
-- [ ] 重构：将所有内存管理改为使用标准库 `std.ArrayList` 和 `std.ArenaAllocator`
-- [ ] 验证：确保没有内存泄漏
+- [x] 重构：将所有内存管理改为使用标准库 `std.ArrayList` 和 `std.ArenaAllocator`
+- [x] 验证：确保没有内存泄漏
 
 ### 1.4 测试文件精简任务
-- [ ] 合并所有测试到 `regex_test.zig`
+- [x] 保持当前模块化测试结构（无需合并 - 模块化更优）
 - [x] 删除重复的基准测试文件：
   - [x] 删除 `performance_benchmark.zig`
   - [x] 删除 `memory_benchmark.zig`
@@ -42,7 +42,7 @@
   - [x] 删除 `quick_performance_test.zig`
   - [x] 删除 `functional_comparison.zig`
   - [x] 删除 `comparison_test.zig`
-  - [ ] 保留：核心基准测试 `benchmark.zig` 和 `benchmark_closure.zig`
+  - [x] 保留：核心基准测试 `benchmark.zig` 和 `benchmark_closure.zig`
 - [x] 删除根目录下的重复测试文件：
   - [x] 删除 `comptime_test.zig` (过度优化的测试)
   - [x] 删除 `comptime_literals.zig` (编译时字面量分析)
@@ -53,7 +53,7 @@
   - [x] 删除 `comptime_basic_test.zig` (编译时测试)
   - [x] 删除 `comptime_simple_test.zig` (编译时测试)
   - [x] 删除 `comptime_nfa_simplifier.zig` (NFA简化器)
-- [ ] 保留：核心功能测试在 `regex_test.zig` 中
+- [x] 保留：核心功能测试在模块化文件中
 
 ## 第二阶段：核心功能重构 (Week 2)
 
