@@ -7,7 +7,7 @@ const compile = @import("compile.zig");
 const input_new = @import("input_new.zig");
 
 pub fn benchmarkEpsilonClosure(allocator: Allocator) !void {
-      const print = std.debug.print;
+    const print = std.debug.print;
 
     print("=== Epsilon-Closure 性能基准测试 ===\n\n", .{});
 

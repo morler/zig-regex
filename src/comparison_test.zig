@@ -232,21 +232,21 @@ const group_tests = [_]TestCase{
         .pattern = "(hello)",
         .input = "hello",
         .expected_match = true,
-        .expected_captures = &[_][]const u8{"hello", "hello"},
+        .expected_captures = &[_][]const u8{ "hello", "hello" },
     },
     .{
         .name = "multiple_captures",
         .pattern = "(\\d{4})-(\\d{2})-(\\d{2})",
         .input = "2023-12-25",
         .expected_match = true,
-        .expected_captures = &[_][]const u8{"2023-12-25", "2023", "12", "25"},
+        .expected_captures = &[_][]const u8{ "2023-12-25", "2023", "12", "25" },
     },
     .{
         .name = "named_group_pattern",
         .pattern = "(?<year>\\d{4})-(?<month>\\d{2})-(?<day>\\d{2})",
         .input = "2023-12-25",
         .expected_match = true,
-        .expected_captures = &[_][]const u8{"2023-12-25", "2023", "12", "25"},
+        .expected_captures = &[_][]const u8{ "2023-12-25", "2023", "12", "25" },
     },
     .{
         .name = "non_capture_group",
@@ -353,14 +353,14 @@ const edge_case_tests = [_]TestCase{
         .pattern = "((a)b)",
         .input = "ab",
         .expected_match = true,
-        .expected_captures = &[_][]const u8{"ab", "ab", "a"},
+        .expected_captures = &[_][]const u8{ "ab", "ab", "a" },
     },
     .{
         .name = "complex_pattern",
         .pattern = "^\\s*(\\d+)\\s+(\\w+)\\s*$",
         .input = "   123   word   ",
         .expected_match = true,
-        .expected_captures = &[_][]const u8{"   123   word   ", "123", "word"},
+        .expected_captures = &[_][]const u8{ "   123   word   ", "123", "word" },
     },
 };
 
@@ -541,28 +541,28 @@ const capture_tests = [_]TestCase{
         .pattern = "(\\d+)",
         .input = "abc123def",
         .expected_match = true,
-        .expected_captures = &[_][]const u8{"123", "123"},
+        .expected_captures = &[_][]const u8{ "123", "123" },
     },
     .{
         .name = "multiple_captures",
         .pattern = "(\\w+)\\s+(\\d+)",
         .input = "hello 123",
         .expected_match = true,
-        .expected_captures = &[_][]const u8{"hello 123", "hello", "123"},
+        .expected_captures = &[_][]const u8{ "hello 123", "hello", "123" },
     },
     .{
         .name = "nested_groups",
         .pattern = "((\\w+)\\s+(\\d+))",
         .input = "hello 123",
         .expected_match = true,
-        .expected_captures = &[_][]const u8{"hello 123", "hello 123", "hello", "123"},
+        .expected_captures = &[_][]const u8{ "hello 123", "hello 123", "hello", "123" },
     },
     .{
         .name = "non_capturing_group",
         .pattern = "(?:hello)\\s+(world)",
         .input = "hello world",
         .expected_match = true,
-        .expected_captures = &[_][]const u8{"hello world", "world"},
+        .expected_captures = &[_][]const u8{ "hello world", "world" },
     },
 };
 
@@ -613,14 +613,14 @@ const complex_tests = [_]TestCase{
         .pattern = "<([a-zA-Z][a-zA-Z0-9]*)\\b[^>]*>(.*?)</\\1>",
         .input = "<div>content</div>",
         .expected_match = true,
-        .expected_captures = &[_][]const u8{"<div>content</div>", "div", "content"},
+        .expected_captures = &[_][]const u8{ "<div>content</div>", "div", "content" },
     },
     .{
         .name = "quoted_string_pattern",
         .pattern = "\"([^\"]*)\"",
         .input = "\"hello world\"",
         .expected_match = true,
-        .expected_captures = &[_][]const u8{"\"hello world\"", "hello world"},
+        .expected_captures = &[_][]const u8{ "\"hello world\"", "hello world" },
     },
 };
 
@@ -673,13 +673,13 @@ pub fn runZigBasicTests(allocator: Allocator) !void {
 
     for (basic_tests) |test_case| {
         var re = ZigRegex.compile(allocator, test_case.pattern) catch |err| {
-            std.debug.print("❌ {s}: 编译失败: {}\n", .{test_case.name, err});
+            std.debug.print("❌ {s}: 编译失败: {}\n", .{ test_case.name, err });
             continue;
         };
         defer re.deinit();
 
         const result = re.match(test_case.input) catch |err| {
-            std.debug.print("❌ {s}: 执行失败: {}\n", .{test_case.name, err});
+            std.debug.print("❌ {s}: 执行失败: {}\n", .{ test_case.name, err });
             continue;
         };
 
@@ -687,15 +687,11 @@ pub fn runZigBasicTests(allocator: Allocator) !void {
             passed += 1;
             std.debug.print("✅ {s}\n", .{test_case.name});
         } else {
-            std.debug.print("❌ {s}: 期望 {}, 实际 {}\n", .{
-                test_case.name, test_case.expected_match, result
-            });
+            std.debug.print("❌ {s}: 期望 {}, 实际 {}\n", .{ test_case.name, test_case.expected_match, result });
         }
     }
 
-    std.debug.print("基础功能测试结果: {}/{} ({d:.1}%)\n\n", .{
-        passed, total, @as(f64, @floatFromInt(passed)) / @as(f64, @floatFromInt(total)) * 100.0
-    });
+    std.debug.print("基础功能测试结果: {}/{} ({d:.1}%)\n\n", .{ passed, total, @as(f64, @floatFromInt(passed)) / @as(f64, @floatFromInt(total)) * 100.0 });
 }
 
 pub fn runZigCaptureTests(allocator: Allocator) !void {
@@ -706,13 +702,13 @@ pub fn runZigCaptureTests(allocator: Allocator) !void {
 
     for (capture_tests) |test_case| {
         var re = ZigRegex.compile(allocator, test_case.pattern) catch |err| {
-            std.debug.print("❌ {s}: 编译失败: {}\n", .{test_case.name, err});
+            std.debug.print("❌ {s}: 编译失败: {}\n", .{ test_case.name, err });
             continue;
         };
         defer re.deinit();
 
         const result = re.captures(test_case.input) catch |err| {
-            std.debug.print("❌ {s}: 执行失败: {}\n", .{test_case.name, err});
+            std.debug.print("❌ {s}: 执行失败: {}\n", .{ test_case.name, err });
             continue;
         };
 
@@ -724,15 +720,13 @@ pub fn runZigCaptureTests(allocator: Allocator) !void {
                 var capture_passed = true;
                 for (expected, 0..) |expected_capture, i| {
                     const actual_capture = caps.sliceAt(i) orelse {
-                        std.debug.print("❌ {s}: 捕获组{} 为空\n", .{test_case.name, i});
+                        std.debug.print("❌ {s}: 捕获组{} 为空\n", .{ test_case.name, i });
                         capture_passed = false;
                         break;
                     };
 
                     if (!std.mem.eql(u8, expected_capture, actual_capture)) {
-                        std.debug.print("❌ {s}: 捕获组{} 不匹配, 期望 '{s}', 实际 '{s}'\n", .{
-                            test_case.name, i, expected_capture, actual_capture
-                        });
+                        std.debug.print("❌ {s}: 捕获组{} 不匹配, 期望 '{s}', 实际 '{s}'\n", .{ test_case.name, i, expected_capture, actual_capture });
                         capture_passed = false;
                         break;
                     }
@@ -758,9 +752,7 @@ pub fn runZigCaptureTests(allocator: Allocator) !void {
         }
     }
 
-    std.debug.print("捕获组测试结果: {}/{} ({d:.1}%)\n\n", .{
-        passed, total, @as(f64, @floatFromInt(passed)) / @as(f64, @floatFromInt(total)) * 100.0
-    });
+    std.debug.print("捕获组测试结果: {}/{} ({d:.1}%)\n\n", .{ passed, total, @as(f64, @floatFromInt(passed)) / @as(f64, @floatFromInt(total)) * 100.0 });
 }
 
 pub fn runZigUnicodeTests(allocator: Allocator) !void {
@@ -771,13 +763,13 @@ pub fn runZigUnicodeTests(allocator: Allocator) !void {
 
     for (unicode_tests) |test_case| {
         var re = ZigRegex.compile(allocator, test_case.pattern) catch |err| {
-            std.debug.print("❌ {s}: 编译失败: {}\n", .{test_case.name, err});
+            std.debug.print("❌ {s}: 编译失败: {}\n", .{ test_case.name, err });
             continue;
         };
         defer re.deinit();
 
         const result = re.match(test_case.input) catch |err| {
-            std.debug.print("❌ {s}: 执行失败: {}\n", .{test_case.name, err});
+            std.debug.print("❌ {s}: 执行失败: {}\n", .{ test_case.name, err });
             continue;
         };
 
@@ -785,15 +777,11 @@ pub fn runZigUnicodeTests(allocator: Allocator) !void {
             passed += 1;
             std.debug.print("✅ {s}\n", .{test_case.name});
         } else {
-            std.debug.print("❌ {s}: 期望 {}, 实际 {}\n", .{
-                test_case.name, test_case.expected_match, result
-            });
+            std.debug.print("❌ {s}: 期望 {}, 实际 {}\n", .{ test_case.name, test_case.expected_match, result });
         }
     }
 
-    std.debug.print("Unicode测试结果: {}/{} ({d:.1}%)\n\n", .{
-        passed, total, @as(f64, @floatFromInt(passed)) / @as(f64, @floatFromInt(total)) * 100.0
-    });
+    std.debug.print("Unicode测试结果: {}/{} ({d:.1}%)\n\n", .{ passed, total, @as(f64, @floatFromInt(passed)) / @as(f64, @floatFromInt(total)) * 100.0 });
 }
 
 pub fn runZigComplexTests(allocator: Allocator) !void {
@@ -804,13 +792,13 @@ pub fn runZigComplexTests(allocator: Allocator) !void {
 
     for (complex_tests) |test_case| {
         var re = ZigRegex.compile(allocator, test_case.pattern) catch |err| {
-            std.debug.print("❌ {s}: 编译失败: {}\n", .{test_case.name, err});
+            std.debug.print("❌ {s}: 编译失败: {}\n", .{ test_case.name, err });
             continue;
         };
         defer re.deinit();
 
         const result = re.match(test_case.input) catch |err| {
-            std.debug.print("❌ {s}: 执行失败: {}\n", .{test_case.name, err});
+            std.debug.print("❌ {s}: 执行失败: {}\n", .{ test_case.name, err });
             continue;
         };
 
@@ -818,15 +806,11 @@ pub fn runZigComplexTests(allocator: Allocator) !void {
             passed += 1;
             std.debug.print("✅ {s}\n", .{test_case.name});
         } else {
-            std.debug.print("❌ {s}: 期望 {}, 实际 {}\n", .{
-                test_case.name, test_case.expected_match, result
-            });
+            std.debug.print("❌ {s}: 期望 {}, 实际 {}\n", .{ test_case.name, test_case.expected_match, result });
         }
     }
 
-    std.debug.print("复杂模式测试结果: {}/{} ({d:.1}%)\n\n", .{
-        passed, total, @as(f64, @floatFromInt(passed)) / @as(f64, @floatFromInt(total)) * 100.0
-    });
+    std.debug.print("复杂模式测试结果: {}/{} ({d:.1}%)\n\n", .{ passed, total, @as(f64, @floatFromInt(passed)) / @as(f64, @floatFromInt(total)) * 100.0 });
 }
 
 pub fn runZigPerformanceTests(allocator: Allocator) !void {
@@ -834,7 +818,7 @@ pub fn runZigPerformanceTests(allocator: Allocator) !void {
 
     for (perf_tests) |test_case| {
         var re = ZigRegex.compile(allocator, test_case.pattern) catch |err| {
-            std.debug.print("❌ {s}: 编译失败: {}\n", .{test_case.name, err});
+            std.debug.print("❌ {s}: 编译失败: {}\n", .{ test_case.name, err });
             continue;
         };
         defer re.deinit();
@@ -853,9 +837,7 @@ pub fn runZigPerformanceTests(allocator: Allocator) !void {
         const duration = end - start;
         const avg_duration = @divFloor(duration, test_case.iterations);
 
-        std.debug.print("{s}: {} iterations, {} matches, total: {}ns, avg: {}ns\n", .{
-            test_case.name, test_case.iterations, matches, duration, avg_duration
-        });
+        std.debug.print("{s}: {} iterations, {} matches, total: {}ns, avg: {}ns\n", .{ test_case.name, test_case.iterations, matches, duration, avg_duration });
     }
 
     std.debug.print("\n", .{});

@@ -13,10 +13,10 @@ const Expr = parser.Expr;
 
 // NFA简化策略
 pub const SimplificationStrategy = enum {
-    none,           // 无简化
-    basic,          // 基本简化
-    aggressive,     // 激进简化
-    extreme,        // 极端简化
+    none, // 无简化
+    basic, // 基本简化
+    aggressive, // 激进简化
+    extreme, // 极端简化
 };
 
 // 编译时NFA简化器
@@ -199,7 +199,8 @@ pub const ComptimeNFASimplifier = struct {
                     const next2 = program.instructions[i + 2];
                     if (inst.data == InstructionData.Char and
                         next.data == InstructionData.Char and
-                        next2.data == InstructionData.Char) {
+                        next2.data == InstructionData.Char)
+                    {
                         count += 1;
                     }
                 }
@@ -232,7 +233,8 @@ pub const ComptimeNFASimplifier = struct {
             if (i < program.instructions.len - 1) {
                 const next = program.instructions[i + 1];
                 if (std.meta.activeTag(inst.data) == .Split and
-                    std.meta.activeTag(next.data) == .Split) {
+                    std.meta.activeTag(next.data) == .Split)
+                {
                     const split1 = std.meta.field(InstructionData, inst.data, .Split);
                     const split2 = std.meta.field(InstructionData, next.data, .Split);
                     if (split1 == split2) {
@@ -335,7 +337,8 @@ const ProgramSimplifier = struct {
 
                 if (inst.data == InstructionData.Char and
                     prev.data == InstructionData.Char and
-                    @as(InstructionData.Char, inst.data) == @as(InstructionData.Char, prev.data)) {
+                    @as(InstructionData.Char, inst.data) == @as(InstructionData.Char, prev.data))
+                {
                     _ = simplified.instructions.orderedRemove(i);
                     try simplified.simplifications_applied.append(.redundant_char);
                     continue;

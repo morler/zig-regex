@@ -198,9 +198,7 @@ test "comptime pattern classification" {
             }
         }
 
-        const actual: PatternType = if (!has_special) .literal
-                                   else if (special_count <= 1) .simple
-                                   else .complex;
+        const actual: PatternType = if (!has_special) .literal else if (special_count <= 1) .simple else .complex;
 
         try testing.expect(actual == case.expected);
     }

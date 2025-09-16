@@ -289,7 +289,8 @@ pub const UnicodeRegexCompiler = struct {
         while (i < normalized.normalized.len) {
             if (i + 1 < normalized.normalized.len and
                 normalized.normalized[i] == '\\' and
-                normalized.normalized[i + 1] == 'u') {
+                normalized.normalized[i + 1] == 'u')
+            {
                 // 处理Unicode转义序列 \uXXXX
                 if (i + 5 < normalized.normalized.len) {
                     const hex_str = normalized.normalized[i + 2 .. i + 6];
@@ -407,10 +408,7 @@ pub const UnicodeRegex = struct {
                 if (is_match) {
                     const start = self.slots.items[0] orelse 0;
                     const end = self.slots.items[1] orelse 0;
-                    return .{
-                        .start = pos + start,
-                        .end = pos + end
-                    };
+                    return .{ .start = pos + start, .end = pos + end };
                 }
 
                 // 移动到下一个位置
@@ -423,10 +421,7 @@ pub const UnicodeRegex = struct {
             const is_match = try exec.exec(self.allocator, self.program.*, self.program.start, &input_wrapper, &self.slots);
 
             if (is_match) {
-                return .{
-                    .start = self.slots.items[0] orelse 0,
-                    .end = self.slots.items[1] orelse 0
-                };
+                return .{ .start = self.slots.items[0] orelse 0, .end = self.slots.items[1] orelse 0 };
             }
             return null;
         }
@@ -490,10 +485,10 @@ pub const UnicodeRegex = struct {
         @memcpy(result[0..match_result.start], input[0..match_result.start]);
 
         // 插入替换文本
-        @memcpy(result[match_result.start..match_result.start + replacement.len], replacement);
+        @memcpy(result[match_result.start .. match_result.start + replacement.len], replacement);
 
         // 复制匹配后的部分
-        @memcpy(result[match_result.start + replacement.len..], input[match_result.end..]);
+        @memcpy(result[match_result.start + replacement.len ..], input[match_result.end..]);
 
         return result;
     }
@@ -524,19 +519,19 @@ pub const UnicodeRegex = struct {
         for (matches) |match_item| {
             // 复制匹配前的部分
             const before_len = match_item.start - input_pos;
-            @memcpy(result[result_pos..result_pos + before_len], input[input_pos..match_item.start]);
+            @memcpy(result[result_pos .. result_pos + before_len], input[input_pos..match_item.start]);
             result_pos += before_len;
             input_pos = match_item.start;
 
             // 插入替换文本
-            @memcpy(result[result_pos..result_pos + replacement.len], replacement);
+            @memcpy(result[result_pos .. result_pos + replacement.len], replacement);
             result_pos += replacement.len;
             input_pos = match_item.end;
         }
 
         // 复制剩余部分
         const remaining_len = input.len - input_pos;
-        @memcpy(result[result_pos..result_pos + remaining_len], input[input_pos..]);
+        @memcpy(result[result_pos .. result_pos + remaining_len], input[input_pos..]);
 
         return result;
     }
@@ -612,7 +607,7 @@ pub fn benchmarkUnicode(allocator: Allocator, input: []const u8, iterations: usi
     _ = allocator;
     // 确保input参数被使用以避免编译器警告
     if (input.len == 0) return;
-      const timer = try std.time.Timer.start();
+    const timer = try std.time.Timer.start();
 
     // 测试UTF-8解码性能
     var start_time = timer.lap();
@@ -622,7 +617,7 @@ pub fn benchmarkUnicode(allocator: Allocator, input: []const u8, iterations: usi
     }
     const decode_time = timer.read() - start_time;
 
-    std.debug.print("UTF-8解码性能: {} iterations in {}ms\n", .{iterations, decode_time / std.time.ns_per_ms});
+    std.debug.print("UTF-8解码性能: {} iterations in {}ms\n", .{ iterations, decode_time / std.time.ns_per_ms });
 
     // 测试边界检测性能
     start_time = timer.lap();
@@ -633,5 +628,5 @@ pub fn benchmarkUnicode(allocator: Allocator, input: []const u8, iterations: usi
     }
     const boundary_time = timer.read() - start_time;
 
-    std.debug.print("边界检测性能: {} iterations in {}ms\n", .{iterations, boundary_time / std.time.ns_per_ms});
+    std.debug.print("边界检测性能: {} iterations in {}ms\n", .{ iterations, boundary_time / std.time.ns_per_ms });
 }

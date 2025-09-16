@@ -131,28 +131,28 @@ const capture_tests = [_]TestCase{
         .pattern = "(\\d+)",
         .input = "abc123def",
         .expected_match = true,
-        .expected_captures = &[_][]const u8{"123", "123"},
+        .expected_captures = &[_][]const u8{ "123", "123" },
     },
     .{
         .name = "multiple_captures",
         .pattern = "(\\w+)\\s+(\\d+)",
         .input = "hello 123",
         .expected_match = true,
-        .expected_captures = &[_][]const u8{"hello 123", "hello", "123"},
+        .expected_captures = &[_][]const u8{ "hello 123", "hello", "123" },
     },
     .{
         .name = "nested_groups",
         .pattern = "((\\w+)\\s+(\\d+))",
         .input = "hello 123",
         .expected_match = true,
-        .expected_captures = &[_][]const u8{"hello 123", "hello 123", "hello", "123"},
+        .expected_captures = &[_][]const u8{ "hello 123", "hello 123", "hello", "123" },
     },
     .{
         .name = "non_capturing_group",
         .pattern = "(?:hello)\\s+(world)",
         .input = "hello world",
         .expected_match = true,
-        .expected_captures = &[_][]const u8{"hello world", "world"},
+        .expected_captures = &[_][]const u8{ "hello world", "world" },
     },
 };
 
@@ -197,7 +197,7 @@ const complex_tests = [_]TestCase{
         .pattern = "<([a-zA-Z][a-zA-Z0-9]*)\\b[^>]*>(.*?)</\\1>",
         .input = "<div>content</div>",
         .expected_match = true,
-        .expected_captures = &[_][]const u8{"<div>content</div>", "div", "content"},
+        .expected_captures = &[_][]const u8{ "<div>content</div>", "div", "content" },
     },
 };
 
@@ -210,13 +210,13 @@ pub fn runZigBasicTests(allocator: Allocator) !struct { passed: usize, total: us
 
     for (basic_tests) |test_case| {
         var re = ZigRegex.compile(allocator, test_case.pattern) catch |err| {
-            std.debug.print("❌ {s}: 编译失败: {}\n", .{test_case.name, err});
+            std.debug.print("❌ {s}: 编译失败: {}\n", .{ test_case.name, err });
             continue;
         };
         defer re.deinit();
 
         const result = re.match(test_case.input) catch |err| {
-            std.debug.print("❌ {s}: 执行失败: {}\n", .{test_case.name, err});
+            std.debug.print("❌ {s}: 执行失败: {}\n", .{ test_case.name, err });
             continue;
         };
 
@@ -224,15 +224,11 @@ pub fn runZigBasicTests(allocator: Allocator) !struct { passed: usize, total: us
             passed += 1;
             std.debug.print("✅ {s}\n", .{test_case.name});
         } else {
-            std.debug.print("❌ {s}: 期望 {}, 实际 {}\n", .{
-                test_case.name, test_case.expected_match, result
-            });
+            std.debug.print("❌ {s}: 期望 {}, 实际 {}\n", .{ test_case.name, test_case.expected_match, result });
         }
     }
 
-    std.debug.print("基础功能测试结果: {}/{} ({d:.1}%)\n\n", .{
-        passed, total, @as(f64, @floatFromInt(passed)) / @as(f64, @floatFromInt(total)) * 100.0
-    });
+    std.debug.print("基础功能测试结果: {}/{} ({d:.1}%)\n\n", .{ passed, total, @as(f64, @floatFromInt(passed)) / @as(f64, @floatFromInt(total)) * 100.0 });
 
     return .{ .passed = passed, .total = total };
 }
@@ -245,13 +241,13 @@ pub fn runZigCaptureTests(allocator: Allocator) !struct { passed: usize, total: 
 
     for (capture_tests) |test_case| {
         var re = ZigRegex.compile(allocator, test_case.pattern) catch |err| {
-            std.debug.print("❌ {s}: 编译失败: {}\n", .{test_case.name, err});
+            std.debug.print("❌ {s}: 编译失败: {}\n", .{ test_case.name, err });
             continue;
         };
         defer re.deinit();
 
         const result = re.captures(test_case.input) catch |err| {
-            std.debug.print("❌ {s}: 执行失败: {}\n", .{test_case.name, err});
+            std.debug.print("❌ {s}: 执行失败: {}\n", .{ test_case.name, err });
             continue;
         };
 
@@ -263,15 +259,13 @@ pub fn runZigCaptureTests(allocator: Allocator) !struct { passed: usize, total: 
                 var capture_passed = true;
                 for (expected, 0..) |expected_capture, i| {
                     const actual_capture = caps.sliceAt(i) orelse {
-                        std.debug.print("❌ {s}: 捕获组{} 为空\n", .{test_case.name, i});
+                        std.debug.print("❌ {s}: 捕获组{} 为空\n", .{ test_case.name, i });
                         capture_passed = false;
                         break;
                     };
 
                     if (!std.mem.eql(u8, expected_capture, actual_capture)) {
-                        std.debug.print("❌ {s}: 捕获组{} 不匹配, 期望 '{s}', 实际 '{s}'\n", .{
-                            test_case.name, i, expected_capture, actual_capture
-                        });
+                        std.debug.print("❌ {s}: 捕获组{} 不匹配, 期望 '{s}', 实际 '{s}'\n", .{ test_case.name, i, expected_capture, actual_capture });
                         capture_passed = false;
                         break;
                     }
@@ -297,9 +291,7 @@ pub fn runZigCaptureTests(allocator: Allocator) !struct { passed: usize, total: 
         }
     }
 
-    std.debug.print("捕获组测试结果: {}/{} ({d:.1}%)\n\n", .{
-        passed, total, @as(f64, @floatFromInt(passed)) / @as(f64, @floatFromInt(total)) * 100.0
-    });
+    std.debug.print("捕获组测试结果: {}/{} ({d:.1}%)\n\n", .{ passed, total, @as(f64, @floatFromInt(passed)) / @as(f64, @floatFromInt(total)) * 100.0 });
 
     return .{ .passed = passed, .total = total };
 }
@@ -312,13 +304,13 @@ pub fn runZigUnicodeTests(allocator: Allocator) !struct { passed: usize, total: 
 
     for (unicode_tests) |test_case| {
         var re = ZigRegex.compile(allocator, test_case.pattern) catch |err| {
-            std.debug.print("❌ {s}: 编译失败: {}\n", .{test_case.name, err});
+            std.debug.print("❌ {s}: 编译失败: {}\n", .{ test_case.name, err });
             continue;
         };
         defer re.deinit();
 
         const result = re.match(test_case.input) catch |err| {
-            std.debug.print("❌ {s}: 执行失败: {}\n", .{test_case.name, err});
+            std.debug.print("❌ {s}: 执行失败: {}\n", .{ test_case.name, err });
             continue;
         };
 
@@ -326,15 +318,11 @@ pub fn runZigUnicodeTests(allocator: Allocator) !struct { passed: usize, total: 
             passed += 1;
             std.debug.print("✅ {s}\n", .{test_case.name});
         } else {
-            std.debug.print("❌ {s}: 期望 {}, 实际 {}\n", .{
-                test_case.name, test_case.expected_match, result
-            });
+            std.debug.print("❌ {s}: 期望 {}, 实际 {}\n", .{ test_case.name, test_case.expected_match, result });
         }
     }
 
-    std.debug.print("Unicode测试结果: {}/{} ({d:.1}%)\n\n", .{
-        passed, total, @as(f64, @floatFromInt(passed)) / @as(f64, @floatFromInt(total)) * 100.0
-    });
+    std.debug.print("Unicode测试结果: {}/{} ({d:.1}%)\n\n", .{ passed, total, @as(f64, @floatFromInt(passed)) / @as(f64, @floatFromInt(total)) * 100.0 });
 
     return .{ .passed = passed, .total = total };
 }
@@ -347,13 +335,13 @@ pub fn runZigComplexTests(allocator: Allocator) !struct { passed: usize, total: 
 
     for (complex_tests) |test_case| {
         var re = ZigRegex.compile(allocator, test_case.pattern) catch |err| {
-            std.debug.print("❌ {s}: 编译失败: {}\n", .{test_case.name, err});
+            std.debug.print("❌ {s}: 编译失败: {}\n", .{ test_case.name, err });
             continue;
         };
         defer re.deinit();
 
         const result = re.match(test_case.input) catch |err| {
-            std.debug.print("❌ {s}: 执行失败: {}\n", .{test_case.name, err});
+            std.debug.print("❌ {s}: 执行失败: {}\n", .{ test_case.name, err });
             continue;
         };
 
@@ -361,15 +349,11 @@ pub fn runZigComplexTests(allocator: Allocator) !struct { passed: usize, total: 
             passed += 1;
             std.debug.print("✅ {s}\n", .{test_case.name});
         } else {
-            std.debug.print("❌ {s}: 期望 {}, 实际 {}\n", .{
-                test_case.name, test_case.expected_match, result
-            });
+            std.debug.print("❌ {s}: 期望 {}, 实际 {}\n", .{ test_case.name, test_case.expected_match, result });
         }
     }
 
-    std.debug.print("复杂模式测试结果: {}/{} ({d:.1}%)\n\n", .{
-        passed, total, @as(f64, @floatFromInt(passed)) / @as(f64, @floatFromInt(total)) * 100.0
-    });
+    std.debug.print("复杂模式测试结果: {}/{} ({d:.1}%)\n\n", .{ passed, total, @as(f64, @floatFromInt(passed)) / @as(f64, @floatFromInt(total)) * 100.0 });
 
     return .{ .passed = passed, .total = total };
 }
@@ -396,15 +380,13 @@ pub fn runAllZigFunctionalTests(allocator: Allocator) !void {
         \\总计: {}/{} ({d:.1}%)
         \\
     , .{
-        basic_result.passed, basic_result.total,
-        @as(f64, @floatFromInt(basic_result.passed)) / @as(f64, @floatFromInt(basic_result.total)) * 100.0,
-        capture_result.passed, capture_result.total,
-        @as(f64, @floatFromInt(capture_result.passed)) / @as(f64, @floatFromInt(capture_result.total)) * 100.0,
-        unicode_result.passed, unicode_result.total,
-        @as(f64, @floatFromInt(unicode_result.passed)) / @as(f64, @floatFromInt(unicode_result.total)) * 100.0,
-        complex_result.passed, complex_result.total,
-        @as(f64, @floatFromInt(complex_result.passed)) / @as(f64, @floatFromInt(complex_result.total)) * 100.0,
-        total_passed, total_tests,
+        basic_result.passed,                                                                                    basic_result.total,
+        @as(f64, @floatFromInt(basic_result.passed)) / @as(f64, @floatFromInt(basic_result.total)) * 100.0,     capture_result.passed,
+        capture_result.total,                                                                                   @as(f64, @floatFromInt(capture_result.passed)) / @as(f64, @floatFromInt(capture_result.total)) * 100.0,
+        unicode_result.passed,                                                                                  unicode_result.total,
+        @as(f64, @floatFromInt(unicode_result.passed)) / @as(f64, @floatFromInt(unicode_result.total)) * 100.0, complex_result.passed,
+        complex_result.total,                                                                                   @as(f64, @floatFromInt(complex_result.passed)) / @as(f64, @floatFromInt(complex_result.total)) * 100.0,
+        total_passed,                                                                                           total_tests,
         @as(f64, @floatFromInt(total_passed)) / @as(f64, @floatFromInt(total_tests)) * 100.0,
     });
 }

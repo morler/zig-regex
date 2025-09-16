@@ -427,7 +427,6 @@ pub fn runZigPerfTest(allocator: Allocator, test_case: *const PerfTestCase) !Per
     return result;
 }
 
-
 // 辅助函数：获取当前内存使用情况（简化版本）
 fn getMemoryUsage() usize {
     // 在实际实现中，这里应该使用系统特定的API来获取内存使用情况

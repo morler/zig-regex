@@ -257,7 +257,7 @@ pub const ParserOptions = struct {
     multiline: bool,
 
     pub fn default() ParserOptions {
-        return ParserOptions{ 
+        return ParserOptions{
             .max_repeat_length = 1000,
             .multiline = false,
         };

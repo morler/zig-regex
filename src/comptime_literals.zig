@@ -359,10 +359,10 @@ pub const ComptimeLiteralAnalysis = struct {
 
 // 优化策略
 pub const OptimizationStrategy = enum {
-    literal_string,    // 纯字面量匹配
-    prefix_search,     // 前缀搜索
-    boyer_moore,       // Boyer-Moore算法
-    multi_pattern,     // 多模式匹配
+    literal_string, // 纯字面量匹配
+    prefix_search, // 前缀搜索
+    boyer_moore, // Boyer-Moore算法
+    multi_pattern, // 多模式匹配
 };
 
 // 编译时字面量优化器

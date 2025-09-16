@@ -473,29 +473,25 @@ pub const LazyDfa = struct {
     fn createStartState(self: *LazyDfa) !void {
         // 计算初始状态的 epsilon 闭包
         const start_pc = self.program.start;
-        std.debug.print("DFA createStartState: start_pc = {}\n", .{start_pc});
+        // std.debug.print("DFA createStartState: start_pc = {}\n", .{start_pc});
         try self.computeEpsilonClosure(start_pc, &self.scratch_space.closure_buffer);
-        std.debug.print("DFA createStartState: epsilon closure contains states: ", .{});
+        // std.debug.print("DFA createStartState: epsilon closure contains states: ", .{});
         for (self.scratch_space.closure_buffer.getBits(), 0..) |bit_word, bit_index| {
             if (bit_word != 0) {
                 for (0..64) |bit_idx| {
                     const bit_offset: u6 = @intCast(bit_idx);
                     if ((bit_word & (@as(u64, 1) << bit_offset)) != 0) {
-                        const pc = bit_index * 64 + bit_offset;
-                        std.debug.print("{} ", .{pc});
+                        _ = bit_index * 64 + bit_offset; // 计算pc但不使用
+                        // std.debug.print("{} ", .{pc});
                     }
                 }
             }
         }
-        std.debug.print("\n", .{});
+        // std.debug.print("\n", .{});
 
         // 创建 DFA 状态
         const state_id = @as(StateId, @intCast(self.states.items.len));
-        var state = try DfaState.init(
-            self.allocator,
-            state_id,
-            try self.scratch_space.closure_buffer.clone()
-        );
+        var state = try DfaState.init(self.allocator, state_id, try self.scratch_space.closure_buffer.clone());
 
         // 检查是否为匹配状态
         state.is_match = self.isMatchState(&state.nfa_states);
@@ -584,7 +580,7 @@ pub const LazyDfa = struct {
 
     // 执行匹配
     pub fn execute(self: *LazyDfa, input: *Input) !bool {
-        std.debug.print("DFA execute: current_state = {?}\n", .{self.current_state});
+        // std.debug.print("DFA execute: current_state = {?}\n", .{self.current_state});
         if (self.current_state == null) {
             return false;
         }
@@ -592,15 +588,15 @@ pub const LazyDfa = struct {
         var current_pos: usize = 0;
         var state_id = self.current_state.?;
 
-        std.debug.print("DFA execute: input length = {}\n", .{input.getLength()});
+        // std.debug.print("DFA execute: input length = {}\n", .{input.getLength()});
 
         while (current_pos < input.getLength()) {
             const char = input.at(current_pos);
-            std.debug.print("DFA execute: pos={}, char='{}'\n", .{current_pos, char});
+            // std.debug.print("DFA execute: pos={}, char='{}'\n", .{ current_pos, char });
 
             // 获取字符类
             const class_id = self.classifier.getClassId(char) orelse {
-                std.debug.print("DFA execute: char '{}' not classified\n", .{char});
+                // std.debug.print("DFA execute: char '{}' not classified\n", .{char});
                 // 未分类的字符，尝试默认转移
                 const state = &self.states.items[state_id];
                 if (state.default_transition) |default_id| {
@@ -636,7 +632,7 @@ pub const LazyDfa = struct {
 
         // 检查最终状态是否为匹配状态
         const final_state = &self.states.items[state_id];
-        std.debug.print("DFA execute: final state_id = {}, is_match = {}\n", .{state_id, final_state.is_match});
+        // std.debug.print("DFA execute: final state_id = {}, is_match = {}\n", .{ state_id, final_state.is_match });
         return final_state.is_match;
     }
 
@@ -657,7 +653,7 @@ pub const LazyDfa = struct {
                         const pc = bit_index * 64 + bit_offset;
                         if (pc < self.program.insts.len) {
                             const inst = &self.program.insts[pc];
-                            std.debug.print("DFA computeTransition: processing inst {} at pc {}\n", .{inst.data, pc});
+                            // std.debug.print("DFA computeTransition: processing inst {} at pc {}\n", .{ inst.data, pc });
                             try self.applyCharTransition(inst, class_id, &self.scratch_space.transition_buffer);
                         }
                     }
@@ -666,19 +662,19 @@ pub const LazyDfa = struct {
         }
 
         // Debug: 打印字符转移结果
-        std.debug.print("DFA computeTransition: transition buffer after char transitions: ", .{});
+        // std.debug.print("DFA computeTransition: transition buffer after char transitions: ", .{});
         for (self.scratch_space.transition_buffer.getBits(), 0..) |bit_word, bit_index| {
             if (bit_word != 0) {
                 for (0..64) |bit_idx| {
                     const bit_offset: u6 = @intCast(bit_idx);
                     if ((bit_word & (@as(u64, 1) << bit_offset)) != 0) {
-                        const pc = bit_index * 64 + bit_offset;
-                        std.debug.print("{} ", .{pc});
+                        _ = bit_index * 64 + bit_offset; // 计算pc但不使用
+                        // std.debug.print("{} ", .{pc});
                     }
                 }
             }
         }
-        std.debug.print("\n", .{});
+        // std.debug.print("\n", .{});
 
         // 计算转移后状态集合的 epsilon 闭包
         self.scratch_space.merge_buffer.clear();
@@ -696,14 +692,14 @@ pub const LazyDfa = struct {
         }
 
         // Debug: 打印最终 epsilon 闭包结果
-        std.debug.print("DFA computeTransition: final epsilon closure: ", .{});
+        // std.debug.print("DFA computeTransition: final epsilon closure: ", .{});
         for (self.scratch_space.merge_buffer.getBits(), 0..) |bit_word, bit_index| {
             if (bit_word != 0) {
                 for (0..64) |bit_idx| {
                     const bit_offset: u6 = @intCast(bit_idx);
                     if ((bit_word & (@as(u64, 1) << bit_offset)) != 0) {
-                        const pc = bit_index * 64 + bit_offset;
-                        std.debug.print("{} ", .{pc});
+                        _ = bit_index * 64 + bit_offset; // 计算pc但不使用
+                        // std.debug.print("{} ", .{pc});
                     }
                 }
             }
@@ -712,7 +708,7 @@ pub const LazyDfa = struct {
         // 检查缓存是否已有相同NFA状态集的DFA状态
         const cached_id = self.cache.findState(&self.scratch_space.merge_buffer) catch null;
         if (cached_id) |id| {
-                    self.stats.cache_hits += 1;
+            self.stats.cache_hits += 1;
             try state.addTransition(self.allocator, class_id, id);
             return id;
         }
@@ -721,15 +717,11 @@ pub const LazyDfa = struct {
 
         // 创建新状态 - 添加安全检查防止无限状态创建
         if (self.states.items.len >= 1000) {
-            std.debug.print("DFA computeTransition: too many states created, potential infinite loop\n", .{});
+            // std.debug.print("DFA computeTransition: too many states created, potential infinite loop\n", .{});
             return error.TooManyStates;
         }
         const new_state_id = @as(StateId, @intCast(self.states.items.len));
-        var new_state = try DfaState.init(
-            self.allocator,
-            new_state_id,
-            try self.scratch_space.merge_buffer.clone()
-        );
+        var new_state = try DfaState.init(self.allocator, new_state_id, try self.scratch_space.merge_buffer.clone());
 
         new_state.is_match = self.isMatchState(&new_state.nfa_states);
 
@@ -744,7 +736,7 @@ pub const LazyDfa = struct {
         self.stats.states_created += 1;
         self.stats.transitions_computed += 1;
 
-        std.debug.print("DFA computeTransition: returning new_state_id={}\n", .{new_state_id});
+        // std.debug.print("DFA computeTransition: returning new_state_id={}\n", .{new_state_id});
         return new_state_id;
     }
 
@@ -816,13 +808,13 @@ pub fn testBasic() !void {
     var input = try input_new.Input.fromSlice(allocator, test_input);
     defer input.deinit();
 
-    const result = try dfa.execute(&input);
-    std.debug.print("Match result: {}\n", .{result});
+    _ = try dfa.execute(&input);
+    // std.debug.print("Match result: {}\n", .{result});
 
     // 打印统计信息
-    const stats = dfa.getStats();
-    std.debug.print("States created: {}\n", .{stats.states_created});
-    std.debug.print("Cache hit rate: {d:.2}%\n", .{stats.hitRate() * 100.0});
+    _ = dfa.getStats();
+    // std.debug.print("States created: {}\n", .{stats.states_created});
+    // std.debug.print("Cache hit rate: {d:.2}%\n", .{stats.hitRate() * 100.0});
 }
 
 // 创建测试程序

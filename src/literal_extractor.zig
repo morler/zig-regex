@@ -171,13 +171,13 @@ pub const LiteralExtractor = struct {
                         try self.extractInternal(subexprs.items[0], if (position == .Standalone) .Prefix else position);
 
                         // 中间的子表达式
-                        for (subexprs.items[1..subexprs.items.len-1]) |subexpr| {
+                        for (subexprs.items[1 .. subexprs.items.len - 1]) |subexpr| {
                             try self.extractInternal(subexpr, .Middle);
                         }
 
                         // 最后一个子表达式可能是后缀
                         if (subexprs.items.len > 1) {
-                            try self.extractInternal(subexprs.items[subexprs.items.len-1], .Suffix);
+                            try self.extractInternal(subexprs.items[subexprs.items.len - 1], .Suffix);
                         }
                     }
                 }
@@ -226,7 +226,7 @@ pub const LiteralExtractor = struct {
                 // 简化检查：如果字符类只有一个范围且长度为1
                 // 实际实现需要更复杂的分析
                 return byte_class.ranges.items.len == 1 and
-                       byte_class.ranges.items[0].min == byte_class.ranges.items[0].max;
+                    byte_class.ranges.items[0].min == byte_class.ranges.items[0].max;
             },
             else => return false,
         }

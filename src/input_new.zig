@@ -309,7 +309,7 @@ pub fn InputInterface(comptime kind: InputKind) type {
         pub fn isEmptyMatch(self: Self, match: Assertion) bool {
             return switch (match) {
                 Assertion.None => true,
-                Assertion.BeginLine => if (self.multiline) 
+                Assertion.BeginLine => if (self.multiline)
                     self.byte_pos == 0 or (self.byte_pos > 0 and self.bytes[self.byte_pos - 1] == '\n')
                 else
                     self.byte_pos == 0,
@@ -420,7 +420,7 @@ pub const Input = union(InputKind) {
         };
     }
 
-  pub fn at(self: Input, pos: usize) u8 {
+    pub fn at(self: Input, pos: usize) u8 {
         return switch (self) {
             .bytes => |b| b.bytes[pos],
             .utf8 => |u| u.bytes[pos],

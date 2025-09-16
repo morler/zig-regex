@@ -16,14 +16,14 @@ const bit_vector = @import("bit_vector.zig");
 const BitVector = bit_vector.BitVector;
 const ThreadSet = bit_vector.ThreadSet;
 
-// NFA状态表�?pub const NfaState = struct {
-    // 程序计数器（指令索引�?    pc: usize,
-    // 捕获组位置数�?    slots: ArrayList(?usize),
-    // 分配�?    allocator: Allocator,
+// NFA状态表�?pub const NfaState = struct {
+    // 程序计数器（指令索引�?    pc: usize,
+    // 捕获组位置数�?    slots: ArrayListUnmanaged(?usize),
+    // 分配�?    allocator: Allocator,
 
-    // 初始化NFA状�?    pub fn init(allocator: Allocator, pc: usize, slot_count: usize) !NfaState {
-        var slots = ArrayListUnmanaged(?usize).empty;
-        try slots.resize(allocator, slot_count, null);
+    // 初始化NFA状�?    pub fn init(allocator: Allocator, pc: usize, slot_count: usize) !NfaState {
+        var slots = std.ArrayListUnmanaged(?usize){};
+        slots.resize(allocator, slot_count, null) catch return error.OutOfMemory;
 
         return NfaState{
             .pc = pc,
@@ -32,11 +32,11 @@ const ThreadSet = bit_vector.ThreadSet;
         };
     }
 
-    // 释放NFA状�?    pub fn deinit(self: *NfaState) void {
+    // 释放NFA状�?    pub fn deinit(self: *NfaState) void {
         self.slots.deinit(self.allocator);
     }
 
-    // 复制NFA状�?    pub fn clone(self: *const NfaState) !NfaState {
+    // 复制NFA状�?    pub fn clone(self: *const NfaState) !NfaState {
         var new_slots = ArrayListUnmanaged(?usize).empty;
         try new_slots.resize(self.allocator, self.slots.items.len, null);
         @memcpy(new_slots.items, self.slots.items);
@@ -48,20 +48,20 @@ const ThreadSet = bit_vector.ThreadSet;
         };
     }
 
-    // 设置捕获组位�?    pub fn setSlot(self: *NfaState, slot_index: usize, position: usize) void {
+    // 设置捕获组位�?    pub fn setSlot(self: *NfaState, slot_index: usize, position: usize) void {
         if (slot_index < self.slots.items.len) {
             self.slots.items[slot_index] = position;
         }
     }
 
-    // 获取捕获组位�?    pub fn getSlot(self: *const NfaState, slot_index: usize) ?usize {
+    // 获取捕获组位�?    pub fn getSlot(self: *const NfaState, slot_index: usize) ?usize {
         if (slot_index < self.slots.items.len) {
             return self.slots.items[slot_index];
         }
         return null;
     }
 
-    // 比较两个NFA状态是否相�?    pub fn equals(self: *const NfaState, other: *const NfaState) bool {
+    // 比较两个NFA状态是否相�?    pub fn equals(self: *const NfaState, other: *const NfaState) bool {
         if (self.pc != other.pc) return false;
         if (self.slots.items.len != other.slots.items.len) return false;
 
@@ -84,7 +84,7 @@ pub const ThompsonNfa = struct {
     // 匹配结果
     match_start: ?usize,
     match_end: ?usize,
-    // 分配�?    allocator: Allocator,
+    // 分配�?    allocator: Allocator,
 
     // 初始化Thompson NFA引擎
     pub fn init(allocator: Allocator, program: *const Program) !ThompsonNfa {
@@ -103,7 +103,7 @@ pub const ThompsonNfa = struct {
         self.thread_set.deinit();
     }
 
-    // 重置引擎状�?    pub fn reset(self: *ThompsonNfa) void {
+    // 重置引擎状�?    pub fn reset(self: *ThompsonNfa) void {
         self.thread_set.clear();
         self.input_pos = 0;
         self.match_start = null;
@@ -119,7 +119,7 @@ pub const ThompsonNfa = struct {
         var stack = ArrayListUnmanaged(usize).empty;
         defer stack.deinit(self.allocator);
 
-        // 初始状态入�?        try stack.append(self.allocator, start_pc);
+        // 初始状态入�?        try stack.append(self.allocator, start_pc);
         visited.set(start_pc);
 
         // DFS遍历epsilon转移
@@ -128,12 +128,12 @@ pub const ThompsonNfa = struct {
             const inst = &self.program.insts[pc];
 
             switch (inst.data) {
-                // Split指令：创建两个分�?                .Split => |target_pc| {
-                    // 第一个分�?                    if (!visited.get(pc + 1)) {
+                // Split指令：创建两个分�?                .Split => |target_pc| {
+                    // 第一个分�?                    if (!visited.get(pc + 1)) {
                         try stack.append(self.allocator, pc + 1);
                         visited.set(pc + 1);
                     }
-                    // 第二个分�?                    if (!visited.get(target_pc)) {
+                    // 第二个分�?                    if (!visited.get(target_pc)) {
                         try stack.append(self.allocator, target_pc);
                         visited.set(target_pc);
                     }
@@ -150,20 +150,20 @@ pub const ThompsonNfa = struct {
                     if (slot_index < slots.items.len) {
                         slots.items[slot_index] = self.input_pos;
                     }
-                    // 继续到下一条指�?                    if (!visited.get(inst.out)) {
+                    // 继续到下一条指�?                    if (!visited.get(inst.out)) {
                         try stack.append(self.allocator, inst.out);
                         visited.set(inst.out);
                     }
                 },
-                // 空匹配（断言�?                            .EmptyMatch => |assertion| { _ = assertion; },
+                // 空匹配（断言�?                            .EmptyMatch => |assertion| { _ = assertion; },
                     }
                 },
-                // 匹配指令：找到匹�?                .Match => {
-                    // 找到匹配，记录匹配位�?                    self.match_end = self.input_pos; // 匹配结束位置是当前位�?                    // 不添加Match指令到线程集合，因为它会终止线程
+                // 匹配指令：找到匹�?                .Match => {
+                    // 找到匹配，记录匹配位�?                    self.match_end = self.input_pos; // 匹配结束位置是当前位�?                    // 不添加Match指令到线程集合，因为它会终止线程
                 },
                 // 其他指令：不产生epsilon转移，但需要添加到线程集合
                 else => {
-                    // 非epsilon转移指令，标记为已访问但不继续遍�?                    visited.set(pc);
+                    // 非epsilon转移指令，标记为已访问但不继续遍�?                    visited.set(pc);
                 },
             }
         }
@@ -225,7 +225,7 @@ pub const ThompsonNfa = struct {
                     self.match_end = self.input_pos;
                 },
                 else => {
-                    // 非epsilon节点，作为边界加入集�?                    visited.set(pc);
+                    // 非epsilon节点，作为边界加入集�?                    visited.set(pc);
                 },
             }
         }
@@ -238,7 +238,7 @@ pub const ThompsonNfa = struct {
 
     // 计算字符转移
     pub fn computeCharTransition(self: *ThompsonNfa, pc: usize, char: u21, slots: *ArrayList(?usize), input: *Input) !?usize {
-        _ = slots; // 避免未使用参数警�?        const inst = &self.program.insts[pc];
+        _ = slots; // 避免未使用参数警�?        const inst = &self.program.insts[pc];
 
         switch (inst.data) {
             // 匹配特定字符
@@ -247,7 +247,7 @@ pub const ThompsonNfa = struct {
                     return inst.out;
                 }
             },
-            // 匹配字符�?            .ByteClass => |byte_class| {
+            // 匹配字符�?            .ByteClass => |byte_class| {
                 if (char <= std.math.maxInt(u8)) {
                     const byte = @as(u8, @intCast(char));
                     if (byte_class.contains(byte)) {
@@ -255,25 +255,25 @@ pub const ThompsonNfa = struct {
                     }
                 }
             },
-            // 匹配任意字符（除换行符外�?            .AnyCharNotNL => {
+            // 匹配任意字符（除换行符外�?            .AnyCharNotNL => {
                 if (char != '\n') {
                     return inst.out;
                 }
             },
-            // 空匹配（断言�?                        .EmptyMatch => |assertion| { _ = assertion; },
+            // 空匹配（断言�?                        .EmptyMatch => |assertion| { _ = assertion; },
             },
-            // 匹配指令不应该出现在字符转移�?            .Match => {
+            // 匹配指令不应该出现在字符转移�?            .Match => {
                 return null; // 终止当前线程
             },
-            // 其他指令不应该出现在字符转移�?            else => {
-                // 不处理其他指令类�?            },
+            // 其他指令不应该出现在字符转移�?            else => {
+                // 不处理其他指令类�?            },
         }
 
-        return null; // 不匹�?    }
+        return null; // 不匹�?    }
 
     // 检查断言
     pub fn checkAssertion(self: *ThompsonNfa, assertion: parser.Assertion, char: u21, input: *Input) bool {
-        _ = char; // 大多数断言不需要字符参�?
+        _ = char; // 大多数断言不需要字符参�?
         switch (assertion) {
             // 无断言
             .None => {
@@ -285,7 +285,7 @@ pub const ThompsonNfa = struct {
             },
             // 行结束：$
             .EndLine => {
-                // 检查是否到达输入末�?                const input_len = input.getLength();
+                // 检查是否到达输入末�?                const input_len = input.getLength();
                 if (self.input_pos >= input_len) {
                     return true; // 到达输入末尾
                 }
@@ -301,7 +301,7 @@ pub const ThompsonNfa = struct {
             },
             // 文本结束：\z
             .EndText => {
-                // 检查是否到达输入末�?                const input_len = input.getLength();
+                // 检查是否到达输入末�?                const input_len = input.getLength();
                 return self.input_pos >= input_len;
             },
             // ASCII单词边界：\b
@@ -323,12 +323,12 @@ pub const ThompsonNfa = struct {
             return false; // 没有活跃线程
         }
 
-        // 准备下一个状态集�?        self.thread_set.prepareNext();
+        // 准备下一个状态集�?        self.thread_set.prepareNext();
 
         // 获取当前字符
         const char_opt = input.current();
         const char = char_opt orelse {
-            // 输入结束，停止处�?            self.thread_set.switchToNext();
+            // 输入结束，停止处�?            self.thread_set.switchToNext();
             return false;
         };
 
@@ -339,16 +339,16 @@ pub const ThompsonNfa = struct {
             defer temp_slots.deinit(self.allocator);
             const next_pc = try self.computeCharTransition(pc, char, &temp_slots, input);
             if (next_pc) |npc| {
-                // 添加到下一个状态集�?                self.thread_set.addToNext(npc);
+                // 添加到下一个状态集�?                self.thread_set.addToNext(npc);
             }
         }
 
-        // 切换到下一个状态集�?        self.thread_set.switchToNext();
+        // 切换到下一个状态集�?        self.thread_set.switchToNext();
 
         // 计算新状态的epsilon闭包
         try self.computeEpsilonClosureForCurrentSet(input);
 
-        // 移动到下一个输入位�?        input.advance();
+        // 移动到下一个输入位�?        input.advance();
         self.input_pos += 1;
 
         return !self.thread_set.isEmpty();
@@ -357,12 +357,12 @@ pub const ThompsonNfa = struct {
     // 为当前线程集合计算epsilon闭包（使用统一的实现）
     fn computeEpsilonClosureForCurrentSet(self: *ThompsonNfa, input: *Input) !void {
 
-        // 调试：检查容�?        std.debug.print("  Current capacity: {}, Temp capacity: {}\n", .{ self.thread_set.current.capacity, self.thread_set.temp.capacity });
+        // 调试：检查容�?        std.debug.print("  Current capacity: {}, Temp capacity: {}\n", .{ self.thread_set.current.capacity, self.thread_set.temp.capacity });
 
         // 保存当前线程集合到临时位向量
         self.thread_set.copyToTemp();
 
-        // 只清空当前线程集合，保留临时位向�?        self.thread_set.current.clear();
+        // 只清空当前线程集合，保留临时位向�?        self.thread_set.current.clear();
 
         // 为临时位向量中的每个状态计算epsilon闭包
         const temp_bit_vector = self.thread_set.getTemp();
@@ -376,10 +376,10 @@ pub const ThompsonNfa = struct {
             var temp_thread_set = try ThreadSet.init(self.allocator, self.program.insts.len);
             defer temp_thread_set.deinit();
 
-            // 交换线程集合以使用临时集�?            const original_thread_set = self.thread_set;
+            // 交换线程集合以使用临时集�?            const original_thread_set = self.thread_set;
             self.thread_set = temp_thread_set;
 
-            // 计算单个状态的epsilon闭包到临时集�?            try self.computeEpsilonClosure(pc, &slots, input);
+            // 计算单个状态的epsilon闭包到临时集�?            try self.computeEpsilonClosure(pc, &slots, input);
 
             // 恢复原始线程集合
             self.thread_set = original_thread_set;
@@ -403,11 +403,11 @@ pub const ThompsonNfa = struct {
 
         try self.computeEpsilonClosure(start_pc, &initial_slots, input);
 
-        // 如果有匹配开始位置，记录�?        if (!self.thread_set.isEmpty()) {
+        // 如果有匹配开始位置，记录�?        if (!self.thread_set.isEmpty()) {
             self.match_start = self.input_pos;
         }
 
-        // 主执行循�?        while (!input.isConsumed() and !self.thread_set.isEmpty()) {
+        // 主执行循�?        while (!input.isConsumed() and !self.thread_set.isEmpty()) {
             _ = try self.step(input);
         }
 
@@ -416,7 +416,7 @@ pub const ThompsonNfa = struct {
             try self.computeEpsilonClosureForCurrentSet(input);
         }
 
-        // 检查是否找到匹�?        return self.match_end != null;
+        // 检查是否找到匹�?        return self.match_end != null;
     }
 
     // 获取匹配结果
@@ -473,7 +473,7 @@ test "Thompson NFA epsilon closure" {
     // 程序：Split -> Char 'a' -> Match
     //         |
     //         -> Char 'b' -> Match
-    insts[0] = Instruction.new(1, InstructionData{ .Split = 2 }); // Split�?�?
+    insts[0] = Instruction.new(1, InstructionData{ .Split = 2 }); // Split�?�?
     insts[1] = Instruction.new(3, InstructionData{ .Char = 'a' }); // 分支1
     insts[2] = Instruction.new(3, InstructionData{ .Char = 'b' }); // 分支2
     insts[3] = Instruction.new(0, InstructionData.Match); // Match
@@ -497,8 +497,8 @@ test "Thompson NFA epsilon closure" {
     var input = input_new.Input.init("", .bytes);
     try nfa.computeEpsilonClosure(0, &slots, &input);
 
-    // 应该包含状�?�?（Split的两个分支）
+    // 应该包含状�?�?（Split的两个分支）
     try std.testing.expect(nfa.thread_set.hasThread(1));
     try std.testing.expect(nfa.thread_set.hasThread(2));
-    // 注意：Split指令本身（状�?）也会被添加到线程集�?    try std.testing.expectEqual(@as(usize, 3), nfa.thread_set.count());
+    // 注意：Split指令本身（状�?）也会被添加到线程集�?    try std.testing.expectEqual(@as(usize, 3), nfa.thread_set.count());
 }

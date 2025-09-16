@@ -91,7 +91,8 @@ pub fn benchmarkExecution(allocator: Allocator, pattern: []const u8, text: []con
     const total_time = @as(i64, @intCast(end_time - start_time));
     const avg_time_per_match = if (total_matches > 0)
         @as(f64, @floatFromInt(total_time)) / @as(f64, @floatFromInt(total_matches))
-    else 0;
+    else
+        0;
 
     return .{
         .total_time = total_time,

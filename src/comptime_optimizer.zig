@@ -14,10 +14,10 @@ const Expr = parser.Expr;
 
 // 编译时优化级别
 pub const OptimizationLevel = enum {
-    none,       // 无优化
-    basic,      // 基本优化
+    none, // 无优化
+    basic, // 基本优化
     aggressive, // 激进优化
-    extreme,    // 极端优化（可能增加编译时间）
+    extreme, // 极端优化（可能增加编译时间）
 };
 
 // 编译时优化配置
@@ -62,11 +62,11 @@ pub const ComptimeAnalysis = struct {
     optimizations: []const OptimizationSuggestion = &.{},
 
     pub const Complexity = enum {
-        trivial,     // 简单字面量
-        simple,      // 简单正则
-        moderate,    // 中等复杂度
-        complex,     // 复杂正则
-        extreme,     // 极端复杂
+        trivial, // 简单字面量
+        simple, // 简单正则
+        moderate, // 中等复杂度
+        complex, // 复杂正则
+        extreme, // 极端复杂
     };
 
     pub const OptimizationSuggestion = struct {
@@ -78,13 +78,13 @@ pub const ComptimeAnalysis = struct {
     };
 
     pub const Strategy = enum {
-        literal_string,           // 使用字面量字符串匹配
-        literal_prefix,           // 使用字面量前缀优化
-        boyer_moore,             // 使用Boyer-Moore算法
-        simplified_nfa,          // 简化NFA
-        dfa_precompiled,         // 预编译DFA
-        memoized_matches,        // 记忆化匹配
-        early_rejection,         // 早期拒绝
+        literal_string, // 使用字面量字符串匹配
+        literal_prefix, // 使用字面量前缀优化
+        boyer_moore, // 使用Boyer-Moore算法
+        simplified_nfa, // 简化NFA
+        dfa_precompiled, // 预编译DFA
+        memoized_matches, // 记忆化匹配
+        early_rejection, // 早期拒绝
     };
 };
 
@@ -161,7 +161,7 @@ pub const ComptimeOptimizer = struct {
                     }
                 },
                 '{' => {
-                    if (i > 0 and isQuantifierPreceding(self.pattern[i-1])) {
+                    if (i > 0 and isQuantifierPreceding(self.pattern[i - 1])) {
                         brace_count += 1;
                     }
                 },
@@ -185,7 +185,7 @@ pub const ComptimeOptimizer = struct {
                     }
                 },
                 '*', '+', '?' => {
-                    if (i > 0 and isQuantifierChar(self.pattern[i-1])) {
+                    if (i > 0 and isQuantifierChar(self.pattern[i - 1])) {
                         analysis.is_valid = false;
                         analysis.error_message = "Repeated quantifier";
                         return false;
@@ -579,9 +579,7 @@ pub fn ComptimeRegex(comptime pattern: []const u8, comptime config: ComptimeConf
         // 编译时验证
         comptime {
             if (!analysis.is_valid) {
-                @compileError(std.fmt.comptimePrint("Invalid regex pattern: {s}", .{
-                    analysis.error_message orelse "unknown error"
-                }));
+                @compileError(std.fmt.comptimePrint("Invalid regex pattern: {s}", .{analysis.error_message orelse "unknown error"}));
             }
 
             if (config.enable_warnings and analysis.complexity == .extreme) {
@@ -663,13 +661,7 @@ fn isQuantifierPreceding(c: u8) bool {
 
 fn isValidEscapeChar(c: u8) bool {
     return switch (c) {
-        'n', 'r', 't', 'f', 'v', 'a', 'e',
-        'd', 'D', 'w', 'W', 's', 'S',
-        'b', 'B',
-        'p', 'P',
-        'x', 'u', 'U',
-        '0'...'7',
-        '\\', '.', '^', '$', '*', '+', '?', '(', ')', '[', ']', '{', '}', '|' => true,
+        'n', 'r', 't', 'f', 'v', 'a', 'e', 'd', 'D', 'w', 'W', 's', 'S', 'b', 'B', 'p', 'P', 'x', 'u', 'U', '0'...'7', '\\', '.', '^', '$', '*', '+', '?', '(', ')', '[', ']', '{', '}', '|' => true,
     };
 }
 

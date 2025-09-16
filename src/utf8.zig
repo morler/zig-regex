@@ -128,7 +128,8 @@ pub const Utf8Decoder = struct {
         // 检查后续字节格式
         if (second_byte & 0xC0 != 0x80 or
             third_byte & 0xC0 != 0x80 or
-            fourth_byte & 0xC0 != 0x80) {
+            fourth_byte & 0xC0 != 0x80)
+        {
             return error.UnexpectedContinuationByte;
         }
 
@@ -852,10 +853,10 @@ pub const Utf8Boundary = struct {
 pub const UnicodeBoundary = struct {
     // 边界类型
     pub const BoundaryType = enum {
-        word,      // 单词边界
-        grapheme,  // 字素边界
-        sentence,  // 句子边界
-        line,      // 行边界
+        word, // 单词边界
+        grapheme, // 字素边界
+        sentence, // 句子边界
+        line, // 行边界
     };
 
     // 边界检测结果
@@ -958,23 +959,23 @@ pub const UnicodeBoundary = struct {
         // 1110xxxx - 3字节序列起始
         // 11110xxx - 4字节序列起始
         return (byte & 0x80) == 0x00 or // ASCII
-               (byte & 0xE0) == 0xC0 or // 2字节
-               (byte & 0xF0) == 0xE0 or // 3字节
-               (byte & 0xF8) == 0xF0;   // 4字节
+            (byte & 0xE0) == 0xC0 or // 2字节
+            (byte & 0xF0) == 0xE0 or // 3字节
+            (byte & 0xF8) == 0xF0; // 4字节
     }
 
     // 检查字符是否为CJK统一汉字
     fn isCJKUnifiedIdeograph(codepoint: u21) bool {
         // CJK统一汉字范围（包括扩展区）
         return (codepoint >= 0x4E00 and codepoint <= 0x9FFF) or // 基本区
-               (codepoint >= 0x3400 and codepoint <= 0x4DBF) or // 扩展A区
-               (codepoint >= 0x20000 and codepoint <= 0x2A6DF) or // 扩展B区
-               (codepoint >= 0x2A700 and codepoint <= 0x2B73F) or // 扩展C区
-               (codepoint >= 0x2B740 and codepoint <= 0x2B81F) or // 扩展D区
-               (codepoint >= 0x2B820 and codepoint <= 0x2CEAF) or // 扩展E区
-               (codepoint >= 0x2CEB0 and codepoint <= 0x2EBEF) or // 扩展F区
-               (codepoint >= 0x30000 and codepoint <= 0x3134F) or // 扩展G区
-               (codepoint >= 0x31350 and codepoint <= 0x323AF);   // 扩展H区
+            (codepoint >= 0x3400 and codepoint <= 0x4DBF) or // 扩展A区
+            (codepoint >= 0x20000 and codepoint <= 0x2A6DF) or // 扩展B区
+            (codepoint >= 0x2A700 and codepoint <= 0x2B73F) or // 扩展C区
+            (codepoint >= 0x2B740 and codepoint <= 0x2B81F) or // 扩展D区
+            (codepoint >= 0x2B820 and codepoint <= 0x2CEAF) or // 扩展E区
+            (codepoint >= 0x2CEB0 and codepoint <= 0x2EBEF) or // 扩展F区
+            (codepoint >= 0x30000 and codepoint <= 0x3134F) or // 扩展G区
+            (codepoint >= 0x31350 and codepoint <= 0x323AF); // 扩展H区
     }
 
     // 获取指定位置的字符
@@ -1089,8 +1090,8 @@ pub const UnicodeBoundary = struct {
 pub const UnicodeNormalization = struct {
     // 规范化形式类型
     pub const NormalizationForm = enum {
-        nfc,  // 规范化形式C - 组合
-        nfd,  // 规范化形式D - 分解
+        nfc, // 规范化形式C - 组合
+        nfd, // 规范化形式D - 分解
         nfkc, // 规范化形式KC - 兼容性组合
         nfkd, // 规范化形式KD - 兼容性分解
     };
@@ -1157,7 +1158,8 @@ pub const UnicodeCaseConversion = struct {
     pub fn needsCaseConversion(codepoint: u21) bool {
         // ASCII字符
         if ((codepoint >= 'A' and codepoint <= 'Z') or
-            (codepoint >= 'a' and codepoint <= 'z')) {
+            (codepoint >= 'a' and codepoint <= 'z'))
+        {
             return true;
         }
 

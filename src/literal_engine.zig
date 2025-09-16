@@ -237,22 +237,22 @@ pub const LiteralEngine = struct {
         var buf = ArrayListUnmanaged(u8){};
         defer buf.deinit(allocator);
 
-        try buf.appendSlice(allocator,"LiteralEngine[");
-        try buf.appendSlice(allocator,@tagName(self.strategy));
-        try buf.appendSlice(allocator,"]");
+        try buf.appendSlice(allocator, "LiteralEngine[");
+        try buf.appendSlice(allocator, @tagName(self.strategy));
+        try buf.appendSlice(allocator, "]");
 
         if (self.candidate) |candidate| {
-            try buf.appendSlice(allocator," literal=\"");
-            try buf.appendSlice(allocator,candidate.literal);
-            try buf.appendSlice(allocator,"\"");
-            try buf.appendSlice(allocator," len=");
+            try buf.appendSlice(allocator, " literal=\"");
+            try buf.appendSlice(allocator, candidate.literal);
+            try buf.appendSlice(allocator, "\"");
+            try buf.appendSlice(allocator, " len=");
             var len_buf: [20]u8 = undefined;
             const len_str = std.fmt.bufPrint(&len_buf, "{}", .{candidate.literal.len}) catch "err";
             try buf.appendSlice(allocator, len_str);
-            try buf.appendSlice(allocator," pos=");
-            try buf.appendSlice(allocator,@tagName(candidate.position));
+            try buf.appendSlice(allocator, " pos=");
+            try buf.appendSlice(allocator, @tagName(candidate.position));
         } else {
-            try buf.appendSlice(allocator," no candidate");
+            try buf.appendSlice(allocator, " no candidate");
         }
 
         return buf.toOwnedSlice(allocator);

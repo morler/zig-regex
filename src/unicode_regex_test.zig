@@ -324,8 +324,7 @@ test "Unicode regex performance" {
     const duration = @as(f64, @floatFromInt(end_time - start_time)) / std.time.ns_per_ms;
 
     // 输出性能信息（实际测试中可以移除）
-    std.debug.print("Unicode regex performance: {} iterations in {:.2}ms ({:.2}ms/op)\n",
-        .{iterations, duration, duration / @as(f64, @floatFromInt(iterations))});
+    std.debug.print("Unicode regex performance: {} iterations in {:.2}ms ({:.2}ms/op)\n", .{ iterations, duration, duration / @as(f64, @floatFromInt(iterations)) });
 
     // 性能应该合理（这里设置一个更宽松的限制）
     try testing.expect(duration < 200.0); // 应该在200ms内完成

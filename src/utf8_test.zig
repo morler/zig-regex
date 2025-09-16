@@ -69,7 +69,7 @@ test "Utf8Decoder - decode at specific position" {
 
 test "Utf8Decoder - handle invalid UTF-8 sequences" {
     // Incomplete 2-byte sequence
-    const test_bytes1 = [_]u8{ 0xC3 };
+    const test_bytes1 = [_]u8{0xC3};
     try testing.expectError(error.IncompleteSequence, utf8.Utf8Decoder.decodeFirst(&test_bytes1));
 
     // Invalid continuation byte
