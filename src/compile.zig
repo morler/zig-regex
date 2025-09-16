@@ -11,6 +11,11 @@ const ByteClass = parser.ByteClass;
 const Expr = parser.Expr;
 const Assertion = parser.Assertion;
 
+const literal_extractor = @import("literal_extractor.zig");
+const LiteralAnalyzer = literal_extractor.LiteralAnalyzer;
+const LiteralInfo = literal_extractor.LiteralInfo;
+const LiteralMatcher = literal_extractor.LiteralMatcher;
+
 pub const InstructionData = union(enum) {
     Char: u8,
     ByteClass: ByteClass,
@@ -82,6 +87,10 @@ pub const Program = struct {
     slot_count: usize,
     allocator: Allocator,
 
+    // Literal fast path fields
+    is_literal: bool = false,
+    literal: []const u8 = "",
+
     pub fn init(allocator: Allocator, a: []Instruction, find_start: usize, slot_count: usize) Program {
         return Program{
             .allocator = allocator,
@@ -92,16 +101,33 @@ pub const Program = struct {
         };
     }
 
+    pub fn initLiteral(allocator: Allocator, literal: []const u8) !Program {
+        const literal_copy = try allocator.dupe(u8, literal);
+        return Program{
+            .allocator = allocator,
+            .insts = &[_]Instruction{}, // Empty instructions for literals
+            .start = 0,
+            .find_start = 0,
+            .slot_count = 2, // For start/end capture
+            .is_literal = true,
+            .literal = literal_copy,
+        };
+    }
+
     pub fn deinit(p: *Program) void {
-        for (p.insts) |*inst| {
-            switch (inst.data) {
-                .ByteClass => |*bc| {
-                    bc.deinit(p.allocator);
-                },
-                else => {},
+        if (p.is_literal) {
+            p.allocator.free(p.literal);
+        } else {
+            for (p.insts) |*inst| {
+                switch (inst.data) {
+                    .ByteClass => |*bc| {
+                        bc.deinit(p.allocator);
+                    },
+                    else => {},
+                }
             }
+            p.allocator.free(p.insts);
         }
-        p.allocator.free(p.insts);
     }
 };
 
@@ -141,6 +167,16 @@ pub const Compiler = struct {
 
     // Compile the regex expression
     pub fn compile(c: *Compiler, expr: *const Expr) !Program {
+        // Fast path: check if this is a simple literal
+        var analyzer = LiteralAnalyzer.init(c.allocator);
+        defer analyzer.deinit();
+
+        var literal_info = try analyzer.analyze(expr);
+        defer literal_info.deinit(c.allocator);
+
+        if (literal_info.is_literal) {
+            return Program.initLiteral(c.allocator, literal_info.literal);
+        }
 
         // surround in a full program match
         const entry = c.insts.items.len;
@@ -514,6 +550,17 @@ pub const DirectCompiler = struct {
     }
 
     pub fn compilePattern(allocator: Allocator, pattern: []const u8) !Program {
+        // Fast path: check if this is a simple literal pattern
+        var analyzer = LiteralAnalyzer.init(allocator);
+        defer analyzer.deinit();
+
+        var literal_info = try analyzer.analyzePattern(pattern);
+        defer literal_info.deinit(allocator);
+
+        if (literal_info.is_literal) {
+            return Program.initLiteral(allocator, literal_info.literal);
+        }
+
         var compiler = DirectCompiler.init(allocator);
         defer compiler.deinit();
 

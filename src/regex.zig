@@ -7,6 +7,7 @@ const parse = @import("parse.zig");
 const compile = @import("compile.zig");
 const thompson_nfa = @import("thompson_nfa.zig");
 const input_mod = @import("input.zig");
+const simple_memory_pool = @import("simple_memory_pool.zig");
 
 const Parser = parse.Parser;
 const Compiler = compile.Compiler;
@@ -20,6 +21,9 @@ pub const Regex = struct {
     pattern: []const u8,
 
     pub fn compile(allocator: Allocator, pattern: []const u8) !Regex {
+        // Initialize memory pool for better performance
+        try simple_memory_pool.initGlobalPool(allocator);
+
         // 暂时恢复原来的编译方式，DirectCompiler需要更完整的实现
         var parser = Parser.init(allocator);
         defer parser.deinit();

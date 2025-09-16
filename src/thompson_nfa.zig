@@ -6,6 +6,8 @@ const compile = @import("compile.zig");
 const Program = compile.Program;
 const Instruction = compile.Instruction;
 const InstructionData = compile.InstructionData;
+const literal_extractor = @import("literal_extractor.zig");
+const LiteralMatcher = literal_extractor.LiteralMatcher;
 const parser = @import("parse.zig");
 
 const input_mod = @import("input.zig");
@@ -15,30 +17,44 @@ const bit_vector = @import("bit_vector.zig");
 const BitVector = bit_vector.BitVector;
 const ThreadSet = bit_vector.ThreadSet;
 const range_set = @import("range_set.zig");
+const simple_memory_pool = @import("simple_memory_pool.zig");
 
 pub const ThompsonNfa = struct {
     program: *const Program,
-    thread_set: ThreadSet,
+    thread_set: *ThreadSet,
     input_pos: usize,
     match_start: ?usize,
     match_end: ?usize,
     allocator: Allocator,
     slots: ?*std.ArrayListUnmanaged(?usize) = null,
+    using_pool: bool,
 
     pub fn init(allocator: Allocator, program: *const Program) !ThompsonNfa {
+        // For now, always create a new thread set
+        // Memory pool optimization will be implemented later
+        const thread_set = try allocator.create(ThreadSet);
+        thread_set.* = try ThreadSet.init(allocator, program.insts.len);
+
         return ThompsonNfa{
             .program = program,
-            .thread_set = try ThreadSet.init(allocator, program.insts.len),
+            .thread_set = thread_set,
             .input_pos = 0,
             .match_start = null,
             .match_end = null,
             .allocator = allocator,
             .slots = null,
+            .using_pool = false,
         };
     }
 
     pub fn deinit(self: *ThompsonNfa) void {
-        self.thread_set.deinit();
+        if (!self.using_pool) {
+            self.thread_set.deinit();
+            self.allocator.destroy(self.thread_set);
+        } else {
+            // Pool-managed thread set will be reset by the pool
+            self.thread_set.clear();
+        }
     }
 
     pub fn setSlots(self: *ThompsonNfa, slots: *std.ArrayListUnmanaged(?usize)) void {
@@ -217,6 +233,11 @@ pub const ThompsonNfa = struct {
 
     // 便捷的执行函数，用于替换exec.zig的功能
     pub fn exec(allocator: Allocator, prog: Program, prog_start: usize, input: *Input, slots: *std.ArrayList(?usize)) !bool {
+        // Fast path: check if this is a literal pattern
+        if (prog.is_literal) {
+            return execLiteral(allocator, &prog, input, slots);
+        }
+
         var nfa = try ThompsonNfa.init(allocator, &prog);
         defer nfa.deinit();
 
@@ -270,5 +291,72 @@ pub const ThompsonNfa = struct {
         }
 
         return matched;
+    }
+
+    // Fast path literal matching
+    fn execLiteral(allocator: Allocator, prog: *const Program, input: *Input, slots: *std.ArrayList(?usize)) !bool {
+        // Prepare slots
+        if (slots.items.len < prog.slot_count) try slots.resize(allocator, prog.slot_count);
+        var i: usize = 0;
+        while (i < slots.items.len) : (i += 1) {
+            slots.items[i] = null;
+        }
+
+        const input_bytes = input.bytes;
+
+        if (input_bytes.len < prog.literal.len) {
+            return false;
+        }
+
+        // ASCII fast path: use faster matching if both input and literal are ASCII
+        const match_pos = if (input.is_ascii and isAsciiLiteral(prog.literal))
+            findAsciiLiteral(input_bytes, prog.literal) orelse return false
+        else
+            findGenericLiteral(input_bytes, prog.literal) orelse return false;
+
+        // Set capture slots for the match
+        if (slots.items.len >= 2) {
+            slots.items[0] = match_pos; // start
+            slots.items[1] = match_pos + prog.literal.len; // end
+        }
+
+        return true;
+    }
+
+    // Check if literal is ASCII
+    fn isAsciiLiteral(literal: []const u8) bool {
+        for (literal) |byte| {
+            if (byte > 127) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Fast ASCII literal search
+    fn findAsciiLiteral(input: []const u8, literal: []const u8) ?usize {
+        if (literal.len == 0) return 0;
+        if (literal.len > input.len) return null;
+
+        // Use simple loop for ASCII (can be optimized with SIMD or other algorithms)
+        for (0..input.len - literal.len + 1) |i| {
+            var matched = true;
+            for (0..literal.len) |j| {
+                if (input[i + j] != literal[j]) {
+                    matched = false;
+                    break;
+                }
+            }
+            if (matched) {
+                return i;
+            }
+        }
+        return null;
+    }
+
+    // Generic literal search (fallback for non-ASCII)
+    fn findGenericLiteral(input: []const u8, literal: []const u8) ?usize {
+        const matcher = LiteralMatcher.init(literal);
+        return matcher.find(input);
     }
 };

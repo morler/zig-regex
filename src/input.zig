@@ -16,6 +16,7 @@ pub const Input = struct {
     byte_pos: usize,
     mode: InputMode,
     multiline: bool,
+    is_ascii: bool, // ASCII快速路径标记
 
     // 初始化函数
     pub fn init(bytes: []const u8, mode: InputMode) Input {
@@ -24,6 +25,7 @@ pub const Input = struct {
             .byte_pos = 0,
             .mode = mode,
             .multiline = false,
+            .is_ascii = isAscii(bytes),
         };
     }
 
@@ -33,6 +35,7 @@ pub const Input = struct {
             .byte_pos = 0,
             .mode = mode,
             .multiline = multiline,
+            .is_ascii = isAscii(bytes),
         };
     }
 
@@ -97,6 +100,7 @@ pub const Input = struct {
             .byte_pos = self.byte_pos,
             .mode = self.mode,
             .multiline = self.multiline,
+            .is_ascii = self.is_ascii,
         };
     }
 
@@ -300,3 +304,13 @@ pub const Input = struct {
         self.byte_pos = @min(pos, self.bytes.len);
     }
 };
+
+// 检查字节切片是否为纯ASCII
+fn isAscii(bytes: []const u8) bool {
+    for (bytes) |byte| {
+        if (byte > 127) {
+            return false;
+        }
+    }
+    return true;
+}
